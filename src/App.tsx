@@ -38,6 +38,12 @@ import {
   CodeItem
 } from './data/assetCodeGenerator';
 import { Navbar, AppTab } from './components/Navbar';
+import {
+  MobileTopBar,
+  MobileBottomBar,
+  MobileMenuSheet
+} from './components/MobileNavigation';
+import { OfflineIndicator } from './components/OfflineIndicator';
 import { DashboardKPI } from './components/DashboardKPI';
 import { AssetList } from './components/AssetList';
 import { TransactionModal } from './components/TransactionModal';
@@ -62,7 +68,7 @@ import {
   syncAssetsToSheet,
   createSpreadsheet
 } from './services/sheetsService';
-import { CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Monitor, Smartphone, Laptop } from 'lucide-react';
 
 const LOCAL_STORAGE_ASSETS_KEY = 'aset_kantor_assets_v3';
 const LOCAL_STORAGE_TRX_KEY = 'aset_kantor_trx_v3';
@@ -75,10 +81,29 @@ const LOCAL_STORAGE_COMPANY_KEY = 'aset_kantor_company_v3';
 const LOCAL_STORAGE_DIV_KEY = 'aset_kantor_div_v3';
 const LOCAL_STORAGE_SUB_KEY = 'aset_kantor_sub_v3';
 const LOCAL_STORAGE_CONFIG_KEY = 'aset_kantor_config_v3';
+const LOCAL_STORAGE_VIEW_MODE_KEY = 'aset_kantor_view_mode';
+
+type ViewMode = 'auto' | 'web' | 'mobile';
 
 export default function App() {
-  // Navigation Tabs: 'assets' | 'transactions' | 'opname' | 'maintenance' | 'disposal' | 'reports' | 'workspace'
+  // Navigation Tabs: 'assets' | 'transactions' | 'opname' | 'maintenance' | 'disposal' | 'reports' | 'settings' | 'workspace'
   const [currentTab, setCurrentTab] = useState<AppTab>('assets');
+
+  // Dual Experience Mode: Auto (responsive), Web Desktop, or Mobile App
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_VIEW_MODE_KEY);
+      if (saved === 'web' || saved === 'mobile' || saved === 'auto') return saved;
+    } catch {}
+    return 'auto';
+  });
+  const [isViewportMobile, setIsViewportMobile] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 1024 : false
+  );
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const isForcedMobilePreview = !isViewportMobile && viewMode === 'mobile';
+  const effectiveIsMobile = viewMode === 'mobile' || (viewMode === 'auto' && isViewportMobile);
 
   // Authentication State
   const [user, setUser] = useState<User | null>(null);
@@ -328,6 +353,21 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [toastMessage]);
+
+  // Persist View Mode & Track Responsive Viewport
+  useEffect(() => {
+    try {
+      localStorage.setItem(LOCAL_STORAGE_VIEW_MODE_KEY, viewMode);
+    } catch {}
+  }, [viewMode]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsViewportMobile(window.innerWidth < 1024);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Initialize Firebase Auth
   useEffect(() => {
@@ -670,11 +710,240 @@ export default function App() {
     });
   };
 
+  const renderMainWorkspace = (isMobileLayout: boolean) => (
+    <>
+      {/* Proactive Warranty & Tax Expiration Alert Banner */}
+      <WarrantyAlertsBanner
+        assets={assets}
+        onSelectAsset={(asset) => {
+          setSelectedAssetForEdit(asset);
+          setIsEditAssetModalOpen(true);
+        }}
+      />
+
+      {/* KPI Dashboard */}
+      <DashboardKPI
+        assets={assets}
+        transactions={transactions}
+        hasToken={!!token}
+        spreadsheetUrl={workspaceConfig.spreadsheetUrl}
+        onOpenWorkspace={() => setCurrentTab('workspace')}
+        onFilterStatus={(status) => {
+          setSelectedStatusFilter(status);
+          setCurrentTab('assets');
+        }}
+        selectedStatusFilter={selectedStatusFilter}
+        isMobileLayout={isMobileLayout}
+      />
+
+      {/* Tab 1: Inventaris Aset */}
+      {currentTab === 'assets' && (
+        <AssetList
+          assets={assets}
+          onOpenTransactionModal={handleOpenTransactionForAsset}
+          onOpenAddAssetModal={() => setIsAddAssetModalOpen(true)}
+          onViewPhoto={handleViewPhoto}
+          onOpenLabelModal={handleOpenLabelForAsset}
+          onOpenDepreciationModal={handleOpenDepreciationForAsset}
+          onOpenEditModal={handleOpenEditForAsset}
+          selectedStatusFilter={selectedStatusFilter}
+          onClearStatusFilter={() => setSelectedStatusFilter(null)}
+          isMobileLayout={isMobileLayout}
+        />
+      )}
+
+      {/* Tab 2: Riwayat Mutasi & Peminjaman */}
+      {currentTab === 'transactions' && (
+        <TransactionHistory
+          transactions={transactions}
+          assets={assets}
+          onViewPhoto={handleViewPhoto}
+          onOpenBast={handleOpenBastForTrx}
+          onQuickReturn={handleQuickReturnFromTracker}
+          token={token}
+        />
+      )}
+
+      {/* Tab 3: Stock Opname & Audit Fisik */}
+      {currentTab === 'opname' && (
+        <StockOpnameView
+          assets={assets}
+          sessions={stockOpnameSessions}
+          onAddSession={handleAddStockOpnameSession}
+          onUpdateSession={handleUpdateStockOpnameSession}
+          onReconcileAssets={handleReconcileAssets}
+          onOpenScanner={() => setIsScanModalOpen(true)}
+          companySettings={companySettings}
+        />
+      )}
+
+      {/* Tab 4: Jadwal Pemeliharaan & Servis Rutin */}
+      {currentTab === 'maintenance' && (
+        <MaintenanceView
+          assets={assets}
+          records={maintenanceRecords}
+          onAddRecord={handleAddMaintenance}
+          onCompleteRecord={handleCompleteMaintenance}
+          token={token}
+          currentUserEmail={user?.email || null}
+          vendors={vendors}
+        />
+      )}
+
+      {/* Tab 5: Penghapusan Aset Resmi (BAPA) */}
+      {currentTab === 'disposal' && (
+        <DisposalView
+          assets={assets}
+          records={disposalRecords}
+          onAddDisposal={handleAddDisposal}
+          companySettings={companySettings}
+        />
+      )}
+
+      {/* Tab 6: Laporan & Analitik Real-Time */}
+      {currentTab === 'reports' && (
+        <ReportsView
+          assets={assets}
+          transactions={transactions}
+          maintenanceRecords={maintenanceRecords}
+          spreadsheetUrl={workspaceConfig.spreadsheetUrl}
+        />
+      )}
+
+      {/* Tab 7: Master Data & Pengaturan Aplikasi */}
+      {currentTab === 'settings' && (
+        <MasterSettingsView
+          locations={locations}
+          onAddLocation={(newLoc) => setLocations((prev) => [newLoc, ...prev])}
+          onUpdateLocation={(updated) => setLocations((prev) => prev.map((l) => (l.id === updated.id ? updated : l)))}
+          onDeleteLocation={(id) => setLocations((prev) => prev.filter((l) => l.id !== id))}
+          onImportLocations={(newLocs) => setLocations((prev) => [...newLocs, ...prev])}
+          vendors={vendors}
+          onAddVendor={(newVnd) => setVendors((prev) => [newVnd, ...prev])}
+          onUpdateVendor={(updated) => setVendors((prev) => prev.map((v) => (v.id === updated.id ? updated : v)))}
+          onDeleteVendor={(id) => setVendors((prev) => prev.filter((v) => v.id !== id))}
+          onImportVendors={(newVnds) => setVendors((prev) => [...newVnds, ...prev])}
+          companySettings={companySettings}
+          onUpdateCompanySettings={(cfg) => setCompanySettings(cfg)}
+          customDivisions={customDivisions}
+          onAddDivision={(div) => setCustomDivisions((prev) => [...prev, div])}
+          onUpdateDivision={(oldCode, updated) => setCustomDivisions((prev) => prev.map((d) => (d.code === oldCode ? updated : d)))}
+          onDeleteDivision={(code) => setCustomDivisions((prev) => prev.filter((d) => d.code !== code))}
+          onImportDivisions={(newDivs) => setCustomDivisions((prev) => [...newDivs, ...prev])}
+          customSubKelompoks={customSubKelompoks}
+          onAddSubKelompok={(sub) => setCustomSubKelompoks((prev) => [...prev, sub])}
+          onUpdateSubKelompok={(oldCode, updated) => setCustomSubKelompoks((prev) => prev.map((s) => (s.code === oldCode ? updated : s)))}
+          onDeleteSubKelompok={(code) => setCustomSubKelompoks((prev) => prev.filter((s) => s.code !== code))}
+          onImportSubKelompoks={(newSubs) => setCustomSubKelompoks((prev) => [...newSubs, ...prev])}
+          allData={{
+            assets,
+            transactions,
+            maintenanceRecords,
+            stockOpnameSessions,
+            disposalRecords,
+          }}
+          onRestoreAllData={(restored) => {
+            if (restored.assets) setAssets(restored.assets);
+            if (restored.transactions) setTransactions(restored.transactions);
+            if (restored.maintenanceRecords) setMaintenanceRecords(restored.maintenanceRecords);
+            if (restored.stockOpnameSessions) setStockOpnameSessions(restored.stockOpnameSessions);
+            if (restored.disposalRecords) setDisposalRecords(restored.disposalRecords);
+            if (restored.locations) setLocations(restored.locations);
+            if (restored.vendors) setVendors(restored.vendors);
+            if (restored.companySettings) setCompanySettings(restored.companySettings);
+            if (restored.customDivisions) setCustomDivisions(restored.customDivisions);
+            if (restored.customSubKelompoks) setCustomSubKelompoks(restored.customSubKelompoks);
+          }}
+        />
+      )}
+
+      {/* Tab 8: Pengaturan Integrasi Google Workspace */}
+      {currentTab === 'workspace' && (
+        <GoogleWorkspaceSettings
+          user={user}
+          token={token}
+          onSignIn={handleSignIn}
+          workspaceConfig={workspaceConfig}
+          onUpdateConfig={(newCfg) => setWorkspaceConfig((prev) => ({ ...prev, ...newCfg }))}
+          assets={assets}
+          onSyncAll={handleManualSync}
+          isSyncing={isSyncing}
+        />
+      )}
+    </>
+  );
+
+  const renderDesktopModeSwitcher = () => (
+    <div className="bg-white border-b border-slate-200 no-print">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs text-slate-600">
+          {effectiveIsMobile ? (
+            <Smartphone className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+          ) : (
+            <Monitor className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+          )}
+          <span>
+            Mode Tampilan:{' '}
+            <strong className="text-slate-900">
+              {isForcedMobilePreview
+                ? 'Versi Mobile (Preview Interaktif)'
+                : viewMode === 'web'
+                ? 'Versi Web Desktop'
+                : 'Otomatis (Web Desktop)'}
+            </strong>
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+          <button
+            type="button"
+            onClick={() => setViewMode('auto')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer whitespace-nowrap shrink-0 ${
+              viewMode === 'auto' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Laptop className="w-3.5 h-3.5" />
+            <span>Otomatis</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('web')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer whitespace-nowrap shrink-0 ${
+              viewMode === 'web' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Monitor className="w-3.5 h-3.5" />
+            <span>Versi Web</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('mobile')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer whitespace-nowrap shrink-0 ${
+              viewMode === 'mobile' ? 'bg-blue-600 text-white shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Smartphone className="w-3.5 h-3.5" />
+            <span>Versi Mobile</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col font-sans">
+      {/* Offline Indicator Banner */}
+      <OfflineIndicator />
+
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 animate-bounce no-print">
+        <div
+          className={`fixed z-50 no-print ${
+            effectiveIsMobile && !isForcedMobilePreview
+              ? 'bottom-20 left-3.5 right-3.5'
+              : 'bottom-5 right-5 max-w-md'
+          }`}
+        >
           <div
             className={`flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-xs font-semibold border ${
               toastMessage.type === 'success'
@@ -694,184 +963,138 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Top Navigation */}
-      <Navbar
-        currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
-        onOpenTransactionModal={() => handleOpenTransactionForAsset()}
-        onOpenAddAssetModal={() => setIsAddAssetModalOpen(true)}
-        onOpenScanModal={() => setIsScanModalOpen(true)}
-        onOpenBatchLabelModal={() => setIsBatchLabelModalOpen(true)}
-        onOpenBatchImportModal={() => setIsBatchImportModalOpen(true)}
-        user={user}
-        hasToken={!!token}
-        onSignIn={handleSignIn}
-        onSignOut={handleSignOut}
-        isSyncing={isSyncing}
-        onManualSync={handleManualSync}
-        spreadsheetUrl={workspaceConfig.spreadsheetUrl}
-        companySettings={companySettings}
-      />
-
-      {/* Main App Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {/* Proactive Warranty & Tax Expiration Alert Banner */}
-        <WarrantyAlertsBanner
-          assets={assets}
-          onSelectAsset={(asset) => {
-            setSelectedAssetForEdit(asset);
-            setIsEditAssetModalOpen(true);
-          }}
-        />
-
-        {/* KPI Dashboard */}
-        <DashboardKPI
-          assets={assets}
-          transactions={transactions}
-          hasToken={!!token}
-          spreadsheetUrl={workspaceConfig.spreadsheetUrl}
-          onOpenWorkspace={() => setCurrentTab('workspace')}
-          onFilterStatus={(status) => {
-            setSelectedStatusFilter(status);
-            setCurrentTab('assets');
-          }}
-          selectedStatusFilter={selectedStatusFilter}
-        />
-
-        {/* Tab 1: Inventaris Aset */}
-        {currentTab === 'assets' && (
-          <AssetList
-            assets={assets}
-            onOpenTransactionModal={handleOpenTransactionForAsset}
+      {/* Case 1: Desktop Web Version */}
+      {!effectiveIsMobile && (
+        <>
+          <Navbar
+            currentTab={currentTab}
+            setCurrentTab={setCurrentTab}
+            onOpenTransactionModal={() => handleOpenTransactionForAsset()}
             onOpenAddAssetModal={() => setIsAddAssetModalOpen(true)}
-            onViewPhoto={handleViewPhoto}
-            onOpenLabelModal={handleOpenLabelForAsset}
-            onOpenDepreciationModal={handleOpenDepreciationForAsset}
-            onOpenEditModal={handleOpenEditForAsset}
-            selectedStatusFilter={selectedStatusFilter}
-            onClearStatusFilter={() => setSelectedStatusFilter(null)}
-          />
-        )}
-
-        {/* Tab 2: Riwayat Mutasi & Peminjaman */}
-        {currentTab === 'transactions' && (
-          <TransactionHistory
-            transactions={transactions}
-            assets={assets}
-            onViewPhoto={handleViewPhoto}
-            onOpenBast={handleOpenBastForTrx}
-            onQuickReturn={handleQuickReturnFromTracker}
-            token={token}
-          />
-        )}
-
-        {/* Tab 3: Stock Opname & Audit Fisik */}
-        {currentTab === 'opname' && (
-          <StockOpnameView
-            assets={assets}
-            sessions={stockOpnameSessions}
-            onAddSession={handleAddStockOpnameSession}
-            onUpdateSession={handleUpdateStockOpnameSession}
-            onReconcileAssets={handleReconcileAssets}
-            onOpenScanner={() => setIsScanModalOpen(true)}
-            companySettings={companySettings}
-          />
-        )}
-
-        {/* Tab 4: Jadwal Pemeliharaan & Servis Rutin */}
-        {currentTab === 'maintenance' && (
-          <MaintenanceView
-            assets={assets}
-            records={maintenanceRecords}
-            onAddRecord={handleAddMaintenance}
-            onCompleteRecord={handleCompleteMaintenance}
-            token={token}
-            currentUserEmail={user?.email || null}
-            vendors={vendors}
-          />
-        )}
-
-        {/* Tab 5: Penghapusan Aset Resmi (BAPA) */}
-        {currentTab === 'disposal' && (
-          <DisposalView
-            assets={assets}
-            records={disposalRecords}
-            onAddDisposal={handleAddDisposal}
-            companySettings={companySettings}
-          />
-        )}
-
-        {/* Tab 6: Laporan & Analitik Real-Time */}
-        {currentTab === 'reports' && (
-          <ReportsView
-            assets={assets}
-            transactions={transactions}
-            maintenanceRecords={maintenanceRecords}
-            spreadsheetUrl={workspaceConfig.spreadsheetUrl}
-          />
-        )}
-
-        {/* Tab 7: Master Data & Pengaturan Aplikasi */}
-        {currentTab === 'settings' && (
-          <MasterSettingsView
-            locations={locations}
-            onAddLocation={(newLoc) => setLocations((prev) => [newLoc, ...prev])}
-            onUpdateLocation={(updated) => setLocations((prev) => prev.map((l) => (l.id === updated.id ? updated : l)))}
-            onDeleteLocation={(id) => setLocations((prev) => prev.filter((l) => l.id !== id))}
-            onImportLocations={(newLocs) => setLocations((prev) => [...newLocs, ...prev])}
-            vendors={vendors}
-            onAddVendor={(newVnd) => setVendors((prev) => [newVnd, ...prev])}
-            onUpdateVendor={(updated) => setVendors((prev) => prev.map((v) => (v.id === updated.id ? updated : v)))}
-            onDeleteVendor={(id) => setVendors((prev) => prev.filter((v) => v.id !== id))}
-            onImportVendors={(newVnds) => setVendors((prev) => [...newVnds, ...prev])}
-            companySettings={companySettings}
-            onUpdateCompanySettings={(cfg) => setCompanySettings(cfg)}
-            customDivisions={customDivisions}
-            onAddDivision={(div) => setCustomDivisions((prev) => [...prev, div])}
-            onUpdateDivision={(oldCode, updated) => setCustomDivisions((prev) => prev.map((d) => (d.code === oldCode ? updated : d)))}
-            onDeleteDivision={(code) => setCustomDivisions((prev) => prev.filter((d) => d.code !== code))}
-            onImportDivisions={(newDivs) => setCustomDivisions((prev) => [...newDivs, ...prev])}
-            customSubKelompoks={customSubKelompoks}
-            onAddSubKelompok={(sub) => setCustomSubKelompoks((prev) => [...prev, sub])}
-            onUpdateSubKelompok={(oldCode, updated) => setCustomSubKelompoks((prev) => prev.map((s) => (s.code === oldCode ? updated : s)))}
-            onDeleteSubKelompok={(code) => setCustomSubKelompoks((prev) => prev.filter((s) => s.code !== code))}
-            onImportSubKelompoks={(newSubs) => setCustomSubKelompoks((prev) => [...newSubs, ...prev])}
-            allData={{
-              assets,
-              transactions,
-              maintenanceRecords,
-              stockOpnameSessions,
-              disposalRecords,
-            }}
-            onRestoreAllData={(restored) => {
-              if (restored.assets) setAssets(restored.assets);
-              if (restored.transactions) setTransactions(restored.transactions);
-              if (restored.maintenanceRecords) setMaintenanceRecords(restored.maintenanceRecords);
-              if (restored.stockOpnameSessions) setStockOpnameSessions(restored.stockOpnameSessions);
-              if (restored.disposalRecords) setDisposalRecords(restored.disposalRecords);
-              if (restored.locations) setLocations(restored.locations);
-              if (restored.vendors) setVendors(restored.vendors);
-              if (restored.companySettings) setCompanySettings(restored.companySettings);
-              if (restored.customDivisions) setCustomDivisions(restored.customDivisions);
-              if (restored.customSubKelompoks) setCustomSubKelompoks(restored.customSubKelompoks);
-            }}
-          />
-        )}
-
-        {/* Tab 8: Pengaturan Integrasi Google Workspace */}
-        {currentTab === 'workspace' && (
-          <GoogleWorkspaceSettings
+            onOpenScanModal={() => setIsScanModalOpen(true)}
+            onOpenBatchLabelModal={() => setIsBatchLabelModalOpen(true)}
+            onOpenBatchImportModal={() => setIsBatchImportModalOpen(true)}
             user={user}
-            token={token}
+            hasToken={!!token}
             onSignIn={handleSignIn}
-            workspaceConfig={workspaceConfig}
-            onUpdateConfig={(newCfg) => setWorkspaceConfig((prev) => ({ ...prev, ...newCfg }))}
-            assets={assets}
-            onSyncAll={handleManualSync}
+            onSignOut={handleSignOut}
             isSyncing={isSyncing}
+            onManualSync={handleManualSync}
+            spreadsheetUrl={workspaceConfig.spreadsheetUrl}
+            companySettings={companySettings}
           />
-        )}
-      </main>
+          {!isViewportMobile ? (
+            renderDesktopModeSwitcher()
+          ) : (
+            <div className="bg-blue-50 border-b border-blue-200 px-3 py-1.5 flex items-center justify-between text-xs no-print">
+              <span className="text-blue-900 font-medium">Mode Web Desktop aktif di layar kecil</span>
+              <button
+                type="button"
+                onClick={() => setViewMode('auto')}
+                className="px-2.5 py-1 rounded-lg bg-blue-600 text-white font-semibold cursor-pointer"
+              >
+                Kembali ke Mobile
+              </button>
+            </div>
+          )}
+          <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+            {renderMainWorkspace(false)}
+          </main>
+        </>
+      )}
+
+      {/* Case 2: Mobile Version Interactive Preview Frame (on Desktop) */}
+      {isForcedMobilePreview && (
+        <>
+          {renderDesktopModeSwitcher()}
+          <div className="flex-1 flex items-start justify-center px-4 py-5 bg-slate-200/70">
+            <div className="w-full max-w-[420px] h-[820px] max-h-[calc(100vh-110px)] rounded-[2.25rem] border-[6px] border-slate-900 bg-slate-50 shadow-2xl overflow-hidden flex flex-col relative">
+              <MobileTopBar
+                currentTab={currentTab}
+                companySettings={companySettings}
+                onOpenAddAssetModal={() => setIsAddAssetModalOpen(true)}
+                onOpenScanModal={() => setIsScanModalOpen(true)}
+                user={user}
+                hasToken={!!token}
+                onSignIn={handleSignIn}
+                onOpenMenu={() => setIsMobileMenuOpen(true)}
+              />
+              <main className="flex-1 overflow-y-auto px-3.5 py-4 space-y-4">
+                {renderMainWorkspace(true)}
+              </main>
+              <MobileBottomBar
+                currentTab={currentTab}
+                setCurrentTab={setCurrentTab}
+                onOpenScanModal={() => setIsScanModalOpen(true)}
+                onOpenMenu={() => setIsMobileMenuOpen(true)}
+                isPreviewFrame={true}
+              />
+              <MobileMenuSheet
+                isOpen={isMobileMenuOpen}
+                onClose={() => setIsMobileMenuOpen(false)}
+                currentTab={currentTab}
+                setCurrentTab={setCurrentTab}
+                onOpenAddAssetModal={() => setIsAddAssetModalOpen(true)}
+                onOpenTransactionModal={() => handleOpenTransactionForAsset()}
+                onOpenBatchLabelModal={() => setIsBatchLabelModalOpen(true)}
+                onOpenBatchImportModal={() => setIsBatchImportModalOpen(true)}
+                user={user}
+                hasToken={!!token}
+                onSignIn={handleSignIn}
+                onSignOut={handleSignOut}
+                isSyncing={isSyncing}
+                onManualSync={handleManualSync}
+                onSwitchToWeb={() => setViewMode('web')}
+                isPreviewFrame={true}
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Case 3: Native Edge-to-Edge Mobile Version (Phone / Tablet < 1024px) */}
+      {!isForcedMobilePreview && effectiveIsMobile && (
+        <>
+          <MobileTopBar
+            currentTab={currentTab}
+            companySettings={companySettings}
+            onOpenAddAssetModal={() => setIsAddAssetModalOpen(true)}
+            onOpenScanModal={() => setIsScanModalOpen(true)}
+            user={user}
+            hasToken={!!token}
+            onSignIn={handleSignIn}
+            onOpenMenu={() => setIsMobileMenuOpen(true)}
+          />
+          <main className="flex-1 w-full px-3.5 py-4 pb-24 space-y-4">
+            {renderMainWorkspace(true)}
+          </main>
+          <MobileBottomBar
+            currentTab={currentTab}
+            setCurrentTab={setCurrentTab}
+            onOpenScanModal={() => setIsScanModalOpen(true)}
+            onOpenMenu={() => setIsMobileMenuOpen(true)}
+            isPreviewFrame={false}
+          />
+          <MobileMenuSheet
+            isOpen={isMobileMenuOpen}
+            onClose={() => setIsMobileMenuOpen(false)}
+            currentTab={currentTab}
+            setCurrentTab={setCurrentTab}
+            onOpenAddAssetModal={() => setIsAddAssetModalOpen(true)}
+            onOpenTransactionModal={() => handleOpenTransactionForAsset()}
+            onOpenBatchLabelModal={() => setIsBatchLabelModalOpen(true)}
+            onOpenBatchImportModal={() => setIsBatchImportModalOpen(true)}
+            user={user}
+            hasToken={!!token}
+            onSignIn={handleSignIn}
+            onSignOut={handleSignOut}
+            isSyncing={isSyncing}
+            onManualSync={handleManualSync}
+            onSwitchToWeb={() => setViewMode('web')}
+            isPreviewFrame={false}
+          />
+        </>
+      )}
 
       {/* Transaction & Loan Modal */}
       <TransactionModal
@@ -972,12 +1195,14 @@ export default function App() {
         title={photoViewer.title}
       />
 
-      {/* Footer */}
-      <footer className="bg-white border-t border-slate-200 mt-12 py-5 text-center text-xs text-slate-500 no-print">
-        <p>
-          AsetKantor Enterprise &bull; Sistem Manajemen Inventaris Terintegrasi Google Sheets, Google Drive, & Gmail API.
-        </p>
-      </footer>
+      {/* Footer (Web Version) */}
+      {!effectiveIsMobile && (
+        <footer className="bg-white border-t border-slate-200 mt-12 py-5 text-center text-xs text-slate-500 no-print">
+          <p>
+            AsetKantor Enterprise &bull; Sistem Manajemen Inventaris Terintegrasi Google Sheets, Google Drive, &amp; Gmail API.
+          </p>
+        </footer>
+      )}
     </div>
   );
 }

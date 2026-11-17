@@ -1,92 +1,57 @@
-# Panduan Lengkap Deploy ke Vercel (vercel.app)
+# Panduan Lengkap Deploy ke GitHub Pages (Hosting GitHub)
 
-Aplikasi **AsetKantor Enterprise** berbasis **Vite + React (SPA)**. Konfigurasi `vercel.json` telah disiapkan di root direktori agar proses build dan routing otomatis berjalan lancar.
+Aplikasi **AsetKantor Enterprise** kini telah dikonfigurasi untuk hosting otomatis menggunakan **GitHub Pages**.
+
+Workflow GitHub Actions resmi telah disiapkan di `.github/workflows/deploy.yml` dan `vite.config.ts` telah diatur dengan `base: './'` agar semua file CSS, JS, dan gambar otomatis terbaca di domain GitHub Anda.
 
 ---
 
-## Opsi 1: Deploy Otomatis via GitHub (Paling Direkomendasikan)
+## Langkah 1: Push Kode ke Repository GitHub
 
-1. **Push Proyek ke GitHub**:
-   Jika belum di-push ke GitHub:
+1. Buka terminal proyek Anda dan lakukan inisialisasi / commit:
    ```bash
-   git init
    git add .
-   git commit -m "feat: setup vercel configuration and enterprise asset management"
+   git commit -m "feat: setup github pages workflow and clean navigation UI"
+   ```
+
+2. Hubungkan ke repository GitHub Anda (jika belum):
+   ```bash
+   git remote add origin https://github.com/USERNAME/NAMA-REPO.git
    git branch -M main
-   git remote add origin https://github.com/USERNAME/REPO_NAME.git
    git push -u origin main
    ```
 
-2. **Buka Vercel Dashboard**:
-   - Masuk ke akun Anda di [https://vercel.com](https://vercel.com).
-   - Klik tombol **"Add New..."** lalu pilih **"Project"**.
-   - Pilih repository GitHub Anda yang baru di-push.
+---
 
-3. **Konfigurasi Project di Vercel**:
-   - **Framework Preset**: `Vite` (akan terdeteksi otomatis).
-   - **Build Command**: `npm run build`
-   - **Output Directory**: `dist`
-   - **Install Command**: `npm install`
-   - Klik **"Deploy"**.
+## Langkah 2: Aktifkan GitHub Pages di Repository
 
-4. **Selesai!**
-   Dalam 1-2 menit, aplikasi Anda akan online di domain seperti:
-   `https://nama-aplikasi.vercel.app`
+1. Buka repository Anda di browser: `https://github.com/USERNAME/NAMA-REPO`.
+2. Klik tab **Settings** (Pengaturan repo).
+3. Di menu sebelah kiri, pilih **Pages** (di bawah bagian *Code and automation*).
+4. Pada bagian **Build and deployment** > **Source**:
+   * Ubah dari *"Deploy from a branch"* menjadi **"GitHub Actions"**.
+5. Selesai! Workflow akan otomatis berjalan dan mendeploy aplikasi Anda setiap kali Anda melakukan `git push` ke branch `main`.
+
+Setelah 1-2 menit, URL website Anda akan aktif di:
+👉 **`https://USERNAME.github.io/NAMA-REPO/`**
 
 ---
 
-## Opsi 2: Deploy Cepat via Vercel CLI
+## Langkah 3: Konfigurasi Otorisasi Domain di Firebase & Google Console
 
-Jika Anda ingin langsung mendeploy dari terminal komputer:
+Agar fitur **Login Google**, **Upload Foto ke Google Drive**, dan **Notifikasi Gmail** bekerja di domain GitHub Pages Anda:
 
-1. **Install Vercel CLI**:
-   ```bash
-   npm i -g vercel
-   ```
+1. Buka [Firebase Console](https://console.firebase.google.com/) > Pilih project: `gen-lang-client-0092700881`.
+2. Masuk ke **Authentication** > Tab **Settings** > **Authorized domains**.
+3. Klik **Add domain**, lalu masukkan domain GitHub Pages Anda:
+   * Contoh: `USERNAME.github.io`
+4. Klik **Save**.
 
-2. **Login ke Akun Vercel**:
-   ```bash
-   vercel login
-   ```
-
-3. **Jalankan Perintah Deploy**:
-   ```bash
-   vercel
-   ```
-   *Ikuti petunjuk di terminal (pilih default untuk semua pertanyaan).*
-
-4. **Deploy ke Production**:
-   ```bash
-   vercel --prod
-   ```
-
----
-
-## ⚠️ LANGKAH PENTING: Autentikasi Google & Firebase di Domain Vercel
-
-Agar fitur **Login Google**, **Upload Foto ke Google Drive**, **Sinkronisasi Google Sheets**, dan **Notifikasi Gmail** dapat berfungsi di domain Vercel Anda (`https://nama-aplikasi.vercel.app`):
-
-### 1. Tambahkan Domain ke Firebase Console (Authorized Domains)
-1. Buka [Firebase Console](https://console.firebase.google.com/).
-2. Pilih proyek Anda: `gen-lang-client-0092700881`.
-3. Buka menu **Authentication** > tab **Settings** > **Authorized domains**.
-4. Klik **Add domain**, lalu masukkan domain Vercel Anda (contoh: `nama-aplikasi.vercel.app`).
-5. Klik **Save**.
-
-### 2. Tambahkan Origin ke Google Cloud Console (OAuth Client ID)
-1. Buka [Google Cloud Console Credentials](https://console.cloud.google.com/apis/credentials).
-2. Cari OAuth 2.0 Client ID aplikasi ini.
-3. Di bagian **Authorized JavaScript origins**, tambahkan:
-   - `https://nama-aplikasi.vercel.app`
-4. Di bagian **Authorized redirect URIs**, tambahkan:
-   - `https://nama-aplikasi.vercel.app`
-   - `https://gen-lang-client-0092700881.firebaseapp.com/__/auth/handler`
-5. Klik **Save**.
-
----
-
-## Ringkasan File Konfigurasi Vercel (`vercel.json`)
-File `vercel.json` yang telah dibuat berisi:
-- **`framework: "vite"`**: Mengarahkan Vercel menggunakan pipeline Vite.
-- **`rewrites`**: Menangani Client-Side Routing React SPA (agar tidak 404 saat merefresh halaman).
-- **`headers`**: Menyediakan caching optimal untuk aset statis (`/assets/*`) dan proteksi header keamanan (`X-Content-Type-Options`, `X-XSS-Protection`).
+5. Buka [Google Cloud Console Credentials](https://console.cloud.google.com/apis/credentials):
+   * Cari OAuth 2.0 Client ID.
+   * Di bagian **Authorized JavaScript origins**, tambahkan:
+     * `https://USERNAME.github.io`
+   * Di bagian **Authorized redirect URIs**, tambahkan:
+     * `https://USERNAME.github.io/NAMA-REPO`
+     * `https://gen-lang-client-0092700881.firebaseapp.com/__/auth/handler`
+   * Klik **Save**.

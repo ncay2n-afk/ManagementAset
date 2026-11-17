@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Boxes,
   History,
@@ -10,15 +10,17 @@ import {
   Wrench,
   BarChart3,
   LogOut,
-  CheckCircle2,
   ClipboardCheck,
   Trash2,
   Layers,
   Upload,
-  Settings
+  Settings,
+  ChevronDown,
+  SlidersHorizontal
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { MasterCompanySettings } from '../types';
+import { PWAInstallButton } from './PWAInstallButton';
 
 export type AppTab =
   | 'assets'
@@ -62,335 +64,231 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSignOut,
   isSyncing,
   onManualSync,
-  spreadsheetUrl,
   companySettings,
 }) => {
+  const [isToolsDropdownOpen, setIsToolsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsToolsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const navItems: { tab: AppTab; label: string; icon: React.ReactNode }[] = [
+    { tab: 'assets', label: 'Inventaris', icon: <Boxes className="w-3.5 h-3.5" /> },
+    { tab: 'transactions', label: 'Mutasi', icon: <History className="w-3.5 h-3.5" /> },
+    { tab: 'opname', label: 'Opname', icon: <ClipboardCheck className="w-3.5 h-3.5" /> },
+    { tab: 'maintenance', label: 'Servis', icon: <Wrench className="w-3.5 h-3.5" /> },
+    { tab: 'disposal', label: 'BAPA', icon: <Trash2 className="w-3.5 h-3.5" /> },
+    { tab: 'reports', label: 'Laporan', icon: <BarChart3 className="w-3.5 h-3.5" /> },
+    { tab: 'settings', label: 'Master', icon: <Settings className="w-3.5 h-3.5" /> },
+    { tab: 'workspace', label: 'Workspace', icon: <FileSpreadsheet className="w-3.5 h-3.5" /> },
+  ];
+
+  const displayCompanyName = companySettings?.companyName
+    ? companySettings.companyName.split(' ').slice(0, 2).join(' ')
+    : 'AsetKantor';
+
   return (
-    <header className="sticky top-0 z-40 bg-slate-900 border-b border-slate-800 text-white shadow-md">
+    <header className="sticky top-0 z-40 bg-slate-900 border-b border-slate-800 text-white no-print">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo & Brand */}
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between h-16 gap-6">
+          {/* Zone 1: Brand Wordmark */}
+          <button
+            type="button"
+            onClick={() => setCurrentTab('assets')}
+            className="flex items-center gap-2.5 whitespace-nowrap shrink-0 cursor-pointer text-left"
+          >
             {companySettings?.logoUrl ? (
               <img
                 src={companySettings.logoUrl}
-                alt={companySettings.companyName || 'Logo Perusahaan'}
-                className="w-10 h-10 rounded-xl bg-white p-1 object-contain border border-slate-700 shadow-md shadow-blue-500/10"
+                alt={displayCompanyName}
+                className="w-8 h-8 rounded-lg bg-white p-0.5 object-contain shrink-0"
               />
             ) : (
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
-                <Boxes className="w-6 h-6 text-white" />
+              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
+                <Boxes className="w-4 h-4 text-white" />
               </div>
             )}
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-lg text-white tracking-tight truncate max-w-[180px] sm:max-w-xs">
-                  {companySettings?.companyName ? companySettings.companyName.split(' ')[0] + ' ' + (companySettings.companyName.split(' ')[1] || 'Aset') : 'AsetKantor'}
-                </span>
-                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                  Enterprise
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 hidden sm:block truncate max-w-sm">
-                {companySettings?.brandSubtitle || 'Sistem Manajemen Inventaris & Mutasi Aset'}
-              </p>
-            </div>
-          </div>
+            <span className="font-bold text-base text-white tracking-tight truncate max-w-[160px]">
+              {displayCompanyName}
+            </span>
+          </button>
 
-          {/* Navigation Tabs */}
-          <nav className="hidden xl:flex items-center gap-1 bg-slate-800/80 p-1 rounded-xl border border-slate-700/60">
-            <button
-              onClick={() => setCurrentTab('assets')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                currentTab === 'assets'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
-              }`}
-            >
-              <Boxes className="w-3.5 h-3.5" />
-              Inventaris
-            </button>
-
-            <button
-              onClick={() => setCurrentTab('transactions')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                currentTab === 'transactions'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
-              }`}
-            >
-              <History className="w-3.5 h-3.5" />
-              Mutasi
-            </button>
-
-            <button
-              onClick={() => setCurrentTab('opname')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                currentTab === 'opname'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
-              }`}
-            >
-              <ClipboardCheck className="w-3.5 h-3.5 text-emerald-400" />
-              Stock Opname
-            </button>
-
-            <button
-              onClick={() => setCurrentTab('maintenance')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                currentTab === 'maintenance'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
-              }`}
-            >
-              <Wrench className="w-3.5 h-3.5 text-amber-400" />
-              Servis
-            </button>
-
-            <button
-              onClick={() => setCurrentTab('disposal')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                currentTab === 'disposal'
-                  ? 'bg-rose-600 text-white shadow-sm'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
-              }`}
-            >
-              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-              Penghapusan (BAPA)
-            </button>
-
-            <button
-              onClick={() => setCurrentTab('reports')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                currentTab === 'reports'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
-              }`}
-            >
-              <BarChart3 className="w-3.5 h-3.5" />
-              Laporan
-            </button>
-
-            <button
-              onClick={() => setCurrentTab('settings')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                currentTab === 'settings'
-                  ? 'bg-slate-700 text-white shadow-sm'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
-              }`}
-            >
-              <Settings className="w-3.5 h-3.5 text-cyan-400" />
-              Master & Pengaturan
-            </button>
-
-            <button
-              onClick={() => setCurrentTab('workspace')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                currentTab === 'workspace'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
-              }`}
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-              Workspace
-              {hasToken ? (
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              ) : (
-                <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-              )}
-            </button>
+          {/* Zone 2: Single-Line Navigation Links */}
+          <nav className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+            {navItems.map((item) => {
+              const isActive = currentTab === item.tab;
+              return (
+                <button
+                  key={item.tab}
+                  type="button"
+                  onClick={() => setCurrentTab(item.tab)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition whitespace-nowrap shrink-0 cursor-pointer ${
+                    isActive
+                      ? 'bg-blue-600 text-white font-semibold'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
           </nav>
 
-          {/* Action Buttons & Auth */}
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            {/* Quick Action: Batch Label Print */}
-            <button
-              onClick={onOpenBatchLabelModal}
-              title="Cetak Stiker Barcode QR Massal (Lembar A4/Roll)"
-              className="p-1.5 sm:px-2.5 sm:py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold transition cursor-pointer"
-            >
-              <Layers className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden lg:inline ml-1.5">Cetak Stiker Massal</span>
-            </button>
+          {/* Zone 3: Primary CTA, Tools Dropdown & Profile */}
+          <div className="flex items-center gap-2 shrink-0">
+            <PWAInstallButton variant="compact" />
 
-            {/* Quick Action: Batch CSV Import */}
-            <button
-              onClick={onOpenBatchImportModal}
-              title="Import Data Inventaris Massal via CSV"
-              className="p-1.5 sm:px-2.5 sm:py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold transition cursor-pointer"
-            >
-              <Upload className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="hidden lg:inline ml-1.5">Import CSV</span>
-            </button>
+            <div className="relative" ref={dropdownRef}>
+              <button
+                type="button"
+                onClick={() => setIsToolsDropdownOpen(!isToolsDropdownOpen)}
+                className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 text-slate-300" />
+                <span>Alat</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                    isToolsDropdownOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
 
-            {/* Quick Action: Scan Barcode / Kamera */}
-            <button
-              onClick={onOpenScanModal}
-              title="Pindai Kamera atau Cari Cepat Barcode / QR Aset"
-              className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer"
-            >
-              <Scan className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="hidden sm:inline">Scan QR</span>
-            </button>
+              {isToolsDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-56 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl p-1.5 z-50 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsToolsDropdownOpen(false);
+                      onOpenScanModal();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-slate-200 hover:bg-slate-700 hover:text-white rounded-lg transition cursor-pointer text-left"
+                  >
+                    <Scan className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <div>
+                      <p className="font-semibold">Scan Barcode / QR</p>
+                      <p className="text-[11px] text-slate-400">Pindai kamera fisik aset</p>
+                    </div>
+                  </button>
 
-            {/* Quick Action Button: Catat Mutasi */}
-            <button
-              onClick={onOpenTransactionModal}
-              className="flex items-center gap-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition cursor-pointer"
-            >
-              <ArrowRightLeft className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Mutasi</span>
-            </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsToolsDropdownOpen(false);
+                      onOpenBatchLabelModal();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-slate-200 hover:bg-slate-700 hover:text-white rounded-lg transition cursor-pointer text-left"
+                  >
+                    <Layers className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div>
+                      <p className="font-semibold">Cetak Stiker Massal</p>
+                      <p className="text-[11px] text-slate-400">Format A4 & Thermal roll</p>
+                    </div>
+                  </button>
 
-            {/* Tambah Aset */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsToolsDropdownOpen(false);
+                      onOpenBatchImportModal();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-slate-200 hover:bg-slate-700 hover:text-white rounded-lg transition cursor-pointer text-left"
+                  >
+                    <Upload className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div>
+                      <p className="font-semibold">Import Data CSV</p>
+                      <p className="text-[11px] text-slate-400">Impor massal inventaris</p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsToolsDropdownOpen(false);
+                      onOpenTransactionModal();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-slate-200 hover:bg-slate-700 hover:text-white rounded-lg transition cursor-pointer text-left"
+                  >
+                    <ArrowRightLeft className="w-4 h-4 text-blue-400 shrink-0" />
+                    <div>
+                      <p className="font-semibold">Catat Mutasi / Pinjam</p>
+                      <p className="text-[11px] text-slate-400">Peminjaman & mutasi PIC</p>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
+
             <button
+              type="button"
               onClick={onOpenAddAssetModal}
-              className="hidden sm:flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer"
+              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap shrink-0"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Aset Baru</span>
             </button>
 
-            {/* Sync Button */}
             {hasToken && (
               <button
+                type="button"
                 onClick={onManualSync}
                 disabled={isSyncing}
                 title="Sinkronkan dengan Google Sheets"
-                className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700 transition cursor-pointer"
+                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white transition cursor-pointer shrink-0"
               >
-                <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-blue-400' : ''}`} />
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-400' : ''}`} />
               </button>
             )}
 
-            {/* Google Authentication Control */}
             {user && hasToken ? (
-              <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
-                <div
+              <div className="flex items-center gap-1.5 pl-1.5 border-l border-slate-800 shrink-0">
+                <button
+                  type="button"
                   onClick={() => setCurrentTab('workspace')}
-                  className="flex items-center gap-2 bg-slate-800/90 border border-slate-700/80 rounded-lg px-2.5 py-1 cursor-pointer hover:border-slate-600 transition"
-                  title="Kelola Google Sheets, Drive, & Gmail"
+                  className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg px-2 py-1 transition cursor-pointer whitespace-nowrap"
+                  title="Google Workspace"
                 >
                   {user.photoURL ? (
                     <img
                       src={user.photoURL}
                       alt={user.displayName || 'User'}
-                      className="w-6 h-6 rounded-full border border-slate-600 object-cover"
+                      className="w-5 h-5 rounded-full object-cover"
                     />
                   ) : (
-                    <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
+                    <div className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">
                       {user.displayName?.charAt(0) || 'U'}
                     </div>
                   )}
-                  <div className="hidden 2xl:block text-left">
-                    <p className="text-xs font-medium text-slate-200 max-w-[110px] truncate leading-tight">
-                      {user.displayName || 'Akun Google'}
-                    </p>
-                    <p className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
-                      <CheckCircle2 className="w-2.5 h-2.5" /> Terhubung
-                    </p>
-                  </div>
-                </div>
-
+                  <span className="text-xs font-medium text-slate-200 hidden 2xl:inline max-w-[90px] truncate">
+                    {user.displayName || 'Akun'}
+                  </span>
+                </button>
                 <button
+                  type="button"
                   onClick={onSignOut}
-                  title="Keluar / Disconnect"
+                  title="Keluar"
                   className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition cursor-pointer"
                 >
-                  <LogOut className="w-4 h-4" />
+                  <LogOut className="w-3.5 h-3.5" />
                 </button>
               </div>
             ) : (
               <button
+                type="button"
                 onClick={onSignIn}
-                className="gsi-material-button flex items-center gap-2 bg-white text-slate-800 hover:bg-slate-100 px-3 py-1.5 rounded-lg text-xs font-medium shadow-sm transition border border-slate-300 cursor-pointer"
+                className="flex items-center gap-1.5 bg-white text-slate-900 hover:bg-slate-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap shrink-0"
               >
-                <svg className="w-4 h-4" viewBox="0 0 48 48">
-                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
-                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
-                  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
-                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
-                </svg>
-                <span className="hidden sm:inline">Masuk</span>
+                <span>Masuk</span>
               </button>
             )}
           </div>
-        </div>
-
-        {/* Secondary / Mobile Navigation Row */}
-        <div className="flex xl:hidden items-center justify-around py-2 border-t border-slate-800 text-[11px] overflow-x-auto">
-          <button
-            onClick={() => setCurrentTab('assets')}
-            className={`flex items-center gap-1 py-1 px-2 rounded-md ${
-              currentTab === 'assets' ? 'text-blue-400 font-bold' : 'text-slate-400'
-            }`}
-          >
-            <Boxes className="w-3.5 h-3.5" />
-            Inventaris
-          </button>
-          <button
-            onClick={() => setCurrentTab('transactions')}
-            className={`flex items-center gap-1 py-1 px-2 rounded-md ${
-              currentTab === 'transactions' ? 'text-blue-400 font-bold' : 'text-slate-400'
-            }`}
-          >
-            <History className="w-3.5 h-3.5" />
-            Mutasi
-          </button>
-          <button
-            onClick={() => setCurrentTab('opname')}
-            className={`flex items-center gap-1 py-1 px-2 rounded-md ${
-              currentTab === 'opname' ? 'text-emerald-400 font-bold' : 'text-slate-400'
-            }`}
-          >
-            <ClipboardCheck className="w-3.5 h-3.5" />
-            Opname
-          </button>
-          <button
-            onClick={() => setCurrentTab('maintenance')}
-            className={`flex items-center gap-1 py-1 px-2 rounded-md ${
-              currentTab === 'maintenance' ? 'text-amber-400 font-bold' : 'text-slate-400'
-            }`}
-          >
-            <Wrench className="w-3.5 h-3.5" />
-            Servis
-          </button>
-          <button
-            onClick={() => setCurrentTab('disposal')}
-            className={`flex items-center gap-1 py-1 px-2 rounded-md ${
-              currentTab === 'disposal' ? 'text-rose-400 font-bold' : 'text-slate-400'
-            }`}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            Penghapusan
-          </button>
-          <button
-            onClick={() => setCurrentTab('reports')}
-            className={`flex items-center gap-1 py-1 px-2 rounded-md ${
-              currentTab === 'reports' ? 'text-blue-400 font-bold' : 'text-slate-400'
-            }`}
-          >
-            <BarChart3 className="w-3.5 h-3.5" />
-            Laporan
-          </button>
-          <button
-            onClick={() => setCurrentTab('settings')}
-            className={`flex items-center gap-1 py-1 px-2 rounded-md ${
-              currentTab === 'settings' ? 'text-cyan-400 font-bold' : 'text-slate-400'
-            }`}
-          >
-            <Settings className="w-3.5 h-3.5" />
-            Master
-          </button>
-          <button
-            onClick={() => setCurrentTab('workspace')}
-            className={`flex items-center gap-1 py-1 px-2 rounded-md ${
-              currentTab === 'workspace' ? 'text-indigo-400 font-bold' : 'text-slate-400'
-            }`}
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            Workspace
-          </button>
         </div>
       </div>
     </header>

@@ -7,10 +7,10 @@ import {
   TrendingUp,
   DollarSign,
   FileSpreadsheet,
-  HardDrive,
-  Mail,
   ExternalLink,
-  ShieldCheck
+  ShieldCheck,
+  CheckCircle2,
+  Link2
 } from 'lucide-react';
 import { OfficeAsset, AssetTransaction } from '../types';
 
@@ -22,24 +22,28 @@ interface DashboardKPIProps {
   onOpenWorkspace: () => void;
   onFilterStatus?: (status: string | null) => void;
   selectedStatusFilter: string | null;
+  isMobileLayout?: boolean;
 }
 
 export const DashboardKPI: React.FC<DashboardKPIProps> = ({
   assets,
-  transactions,
+  transactions: _transactions,
   hasToken,
   spreadsheetUrl,
   onOpenWorkspace,
   onFilterStatus,
   selectedStatusFilter,
+  isMobileLayout = false,
 }) => {
-  // Aggregate statistics
   const totalAssetsCount = assets.length;
   const totalUnits = assets.reduce((acc, curr) => acc + (curr.totalStock || 0), 0);
   const totalAvailable = assets.reduce((acc, curr) => acc + (curr.availableStock || 0), 0);
   const totalBorrowed = assets.reduce((acc, curr) => acc + (curr.borrowedStock || 0), 0);
   const totalDamaged = assets.reduce(
-    (acc, curr) => acc + (curr.damagedStock || 0) + (curr.condition === 'Perlu Perbaikan' || curr.condition === 'Rusak Berat' ? 1 : 0),
+    (acc, curr) =>
+      acc +
+      (curr.damagedStock || 0) +
+      (curr.condition === 'Perlu Perbaikan' || curr.condition === 'Rusak Berat' ? 1 : 0),
     0
   );
 
@@ -61,180 +65,202 @@ export const DashboardKPI: React.FC<DashboardKPIProps> = ({
   };
 
   return (
-    <div className="space-y-4">
+    <div className={isMobileLayout ? 'space-y-3' : 'space-y-4'}>
       {/* Workspace Connection Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-indigo-900/60 rounded-2xl p-4 text-white shadow-md">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div
+        className={`bg-slate-900 border border-slate-800 rounded-2xl text-white ${
+          isMobileLayout ? 'p-3.5' : 'p-4'
+        }`}
+      >
+        <div
+          className={`flex justify-between gap-3 ${
+            isMobileLayout ? 'flex-col' : 'flex-col sm:flex-row sm:items-center'
+          }`}
+        >
           <div className="flex items-start sm:items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-indigo-500/20 border border-indigo-500/30 text-indigo-400">
-              <ShieldCheck className="w-5 h-5" />
+            <div className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-blue-400 shrink-0">
+              <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-semibold text-white">Google Workspace Asset Core</h2>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm font-semibold text-white">Google Workspace Core</h2>
+                <span aria-hidden="true" className="text-slate-600 text-xs">·</span>
                 {hasToken ? (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-                    Terkoneksi Aktif
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Terkoneksi</span>
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full">
-                    Koneksi Diperlukan
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-400">
+                    <Link2 className="w-3.5 h-3.5" />
+                    <span>Perlu Koneksi</span>
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-300 mt-0.5">
-                Database tersinkronisasi dengan Google Sheets, foto kondisi tersimpan otomatis di Google Drive, dan notifikasi email via Gmail.
+              <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">
+                {isMobileLayout
+                  ? 'Sinkronisasi Sheets, Drive foto aset, dan notifikasi Gmail.'
+                  : 'Database tersinkronisasi dengan Google Sheets, bukti foto tersimpan di Google Drive, dan notifikasi otomatis via Gmail.'}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 self-end sm:self-center">
+          <div className="flex items-center gap-2 shrink-0">
             {spreadsheetUrl && (
               <a
                 href={spreadsheetUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center gap-1.5 bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700 text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition"
+                className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium px-3 py-2 rounded-xl transition whitespace-nowrap shrink-0 min-h-[40px]"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Buka Spreadsheet</span>
+                <span>Sheets</span>
                 <ExternalLink className="w-3 h-3 text-slate-400" />
               </a>
             )}
             <button
+              type="button"
               onClick={onOpenWorkspace}
-              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition"
+              className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 cursor-pointer min-h-[40px] flex-1 sm:flex-initial"
             >
-              <span>{hasToken ? 'Pengaturan Integrasi' : 'Hubungkan Akun Google'}</span>
+              <span>{hasToken ? 'Pengaturan Sync' : 'Hubungkan Google'}</span>
             </button>
           </div>
         </div>
       </div>
 
       {/* KPI Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
+      <div
+        className={
+          isMobileLayout
+            ? 'grid grid-cols-2 gap-2.5'
+            : 'grid grid-cols-2 lg:grid-cols-5 gap-3.5'
+        }
+      >
         {/* Total Nilai Aset */}
-        <div className="col-span-2 lg:col-span-1 bg-white p-4 rounded-xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-slate-300 transition">
+        <div
+          className={`${
+            isMobileLayout ? 'col-span-2 p-3.5' : 'col-span-2 lg:col-span-1 p-4'
+          } bg-white rounded-2xl border border-slate-200 flex flex-col justify-between`}
+        >
           <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-semibold uppercase tracking-wider">Total Nilai Aset</span>
-            <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
-              <DollarSign className="w-4 h-4" />
-            </div>
+            <span className="text-xs font-semibold">Total Nilai Aset</span>
+            <DollarSign className="w-4 h-4 text-emerald-600" />
           </div>
           <div className="mt-2">
-            <div className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">
+            <div className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight tabular-nums">
               {formatIDR(totalValuation)}
             </div>
             <p className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
-              <TrendingUp className="w-3 h-3 text-emerald-600 inline" />
-              Total kapitalisasi inventaris
+              <TrendingUp className="w-3 h-3 text-emerald-600 inline shrink-0" />
+              <span>Kapitalisasi inventaris aktif</span>
             </p>
           </div>
         </div>
 
         {/* Total Unit & Item */}
-        <div
+        <button
+          type="button"
           onClick={() => onFilterStatus && onFilterStatus(null)}
-          className={`bg-white p-4 rounded-xl border shadow-xs flex flex-col justify-between transition cursor-pointer ${
-            selectedStatusFilter === null ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-200/90 hover:border-slate-300'
+          className={`text-left bg-white ${
+            isMobileLayout ? 'p-3.5' : 'p-4'
+          } rounded-2xl border flex flex-col justify-between transition cursor-pointer min-h-[88px] ${
+            selectedStatusFilter === null
+              ? 'border-blue-600 ring-2 ring-blue-600/15'
+              : 'border-slate-200 hover:border-slate-300'
           }`}
         >
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-semibold uppercase tracking-wider">Total Barang</span>
-            <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
-              <Boxes className="w-4 h-4" />
-            </div>
+          <div className="flex items-center justify-between text-slate-500 w-full">
+            <span className="text-xs font-semibold">Total Barang</span>
+            <Boxes className="w-4 h-4 text-blue-600" />
           </div>
           <div className="mt-2">
-            <div className="text-lg sm:text-xl font-bold text-slate-900">
+            <div className="text-lg sm:text-xl font-bold text-slate-900 tabular-nums">
               {totalUnits}{' '}
-              <span className="text-xs font-normal text-slate-500">unit ({totalAssetsCount} item)</span>
+              <span className="text-xs font-normal text-slate-500">
+                unit · {totalAssetsCount} item
+              </span>
             </div>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Tersedia:{' '}
-              <span className="font-semibold text-emerald-600">{totalAvailable} unit</span>
+            <p className="text-[11px] text-slate-500 mt-0.5 tabular-nums">
+              Tersedia: <span className="font-semibold text-emerald-700">{totalAvailable} unit</span>
             </p>
           </div>
-        </div>
+        </button>
 
         {/* Sedang Dipinjam */}
-        <div
+        <button
+          type="button"
           onClick={() => onFilterStatus && onFilterStatus('Sedang Dipinjam')}
-          className={`bg-white p-4 rounded-xl border shadow-xs flex flex-col justify-between transition cursor-pointer ${
+          className={`text-left bg-white ${
+            isMobileLayout ? 'p-3.5' : 'p-4'
+          } rounded-2xl border flex flex-col justify-between transition cursor-pointer min-h-[88px] ${
             selectedStatusFilter === 'Sedang Dipinjam'
-              ? 'border-indigo-500 ring-2 ring-indigo-500/20'
-              : 'border-slate-200/90 hover:border-slate-300'
+              ? 'border-indigo-600 ring-2 ring-indigo-600/15'
+              : 'border-slate-200 hover:border-slate-300'
           }`}
         >
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-semibold uppercase tracking-wider">Sedang Dipinjam</span>
-            <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600">
-              <ArrowRightLeft className="w-4 h-4" />
-            </div>
+          <div className="flex items-center justify-between text-slate-500 w-full">
+            <span className="text-xs font-semibold">Dipinjam</span>
+            <ArrowRightLeft className="w-4 h-4 text-indigo-600" />
           </div>
           <div className="mt-2">
-            <div className="text-lg sm:text-xl font-bold text-indigo-700">
+            <div className="text-lg sm:text-xl font-bold text-indigo-700 tabular-nums">
               {totalBorrowed}{' '}
               <span className="text-xs font-normal text-slate-500">unit</span>
             </div>
-            <p className="text-[11px] text-indigo-600 mt-0.5">
-              Dipakai aktif oleh staf kantor
-            </p>
+            <p className="text-[11px] text-slate-500 mt-0.5">Dipakai staf kantor</p>
           </div>
-        </div>
+        </button>
 
         {/* Butuh Perbaikan / Rusak */}
-        <div
+        <button
+          type="button"
           onClick={() => onFilterStatus && onFilterStatus('Dalam Perbaikan')}
-          className={`bg-white p-4 rounded-xl border shadow-xs flex flex-col justify-between transition cursor-pointer ${
+          className={`text-left bg-white ${
+            isMobileLayout ? 'p-3.5' : 'p-4'
+          } rounded-2xl border flex flex-col justify-between transition cursor-pointer min-h-[88px] ${
             selectedStatusFilter === 'Dalam Perbaikan'
-              ? 'border-amber-500 ring-2 ring-amber-500/20'
-              : 'border-slate-200/90 hover:border-slate-300'
+              ? 'border-amber-600 ring-2 ring-amber-600/15'
+              : 'border-slate-200 hover:border-slate-300'
           }`}
         >
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-semibold uppercase tracking-wider">Butuh Servis</span>
-            <div className="p-2 rounded-lg bg-amber-50 text-amber-600">
-              <Wrench className="w-4 h-4" />
-            </div>
+          <div className="flex items-center justify-between text-slate-500 w-full">
+            <span className="text-xs font-semibold">Butuh Servis</span>
+            <Wrench className="w-4 h-4 text-amber-600" />
           </div>
           <div className="mt-2">
-            <div className="text-lg sm:text-xl font-bold text-amber-600">
+            <div className="text-lg sm:text-xl font-bold text-amber-700 tabular-nums">
               {totalDamaged}{' '}
               <span className="text-xs font-normal text-slate-500">unit</span>
             </div>
-            <p className="text-[11px] text-amber-600 mt-0.5">
-              Perlu maintenance / rusak
-            </p>
+            <p className="text-[11px] text-slate-500 mt-0.5">Perlu perawatan</p>
           </div>
-        </div>
+        </button>
 
         {/* Stok Kritis */}
-        <div
+        <button
+          type="button"
           onClick={() => onFilterStatus && onFilterStatus('Stok Kritis')}
-          className={`bg-white p-4 rounded-xl border shadow-xs flex flex-col justify-between transition cursor-pointer ${
+          className={`text-left bg-white ${
+            isMobileLayout ? 'p-3.5' : 'p-4'
+          } rounded-2xl border flex flex-col justify-between transition cursor-pointer min-h-[88px] ${
             selectedStatusFilter === 'Stok Kritis'
-              ? 'border-rose-500 ring-2 ring-rose-500/20'
-              : 'border-slate-200/90 hover:border-slate-300'
+              ? 'border-rose-600 ring-2 ring-rose-600/15'
+              : 'border-slate-200 hover:border-slate-300'
           }`}
         >
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-semibold uppercase tracking-wider">Stok Kritis</span>
-            <div className="p-2 rounded-lg bg-rose-50 text-rose-600">
-              <AlertTriangle className="w-4 h-4" />
-            </div>
+          <div className="flex items-center justify-between text-slate-500 w-full">
+            <span className="text-xs font-semibold">Stok Kritis</span>
+            <AlertTriangle className="w-4 h-4 text-rose-600" />
           </div>
           <div className="mt-2">
-            <div className="text-lg sm:text-xl font-bold text-rose-600">
+            <div className="text-lg sm:text-xl font-bold text-rose-700 tabular-nums">
               {criticalStockItems.length}{' '}
-              <span className="text-xs font-normal text-slate-500">kategori</span>
+              <span className="text-xs font-normal text-slate-500">item</span>
             </div>
-            <p className="text-[11px] text-rose-600 mt-0.5">
-              Sisa stok &le; 1 unit segera restock
-            </p>
+            <p className="text-[11px] text-slate-500 mt-0.5">Sisa &le; 1 unit</p>
           </div>
-        </div>
+        </button>
       </div>
     </div>
   );

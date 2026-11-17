@@ -41,6 +41,7 @@ interface AssetListProps {
   onOpenEditModal: (asset: OfficeAsset) => void;
   selectedStatusFilter: string | null;
   onClearStatusFilter: () => void;
+  isMobileLayout?: boolean;
 }
 
 const CATEGORIES: AssetCategory[] = [
@@ -62,12 +63,15 @@ export const AssetList: React.FC<AssetListProps> = ({
   onOpenEditModal,
   selectedStatusFilter,
   onClearStatusFilter,
+  isMobileLayout = false,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [selectedCondition, setSelectedCondition] = useState<string>('ALL');
-  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>(isMobileLayout ? 'cards' : 'table');
   const [selectedAssetDetail, setSelectedAssetDetail] = useState<OfficeAsset | null>(null);
+
+  const effectiveViewMode = isMobileLayout ? 'cards' : viewMode;
 
   // Filtered Assets
   const filteredAssets = useMemo(() => {
@@ -192,16 +196,16 @@ export const AssetList: React.FC<AssetListProps> = ({
   return (
     <div className="space-y-4">
       {/* Search, Filter Bar, and Actions */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+      <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
         {/* Search Input */}
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Cari aset (nama, kode AST, SKU, lokasi, PIC)..."
+            placeholder="Cari nama, kode aset, SKU, lokasi, PIC..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+            className="w-full min-h-[42px] pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
           />
         </div>
 
@@ -211,7 +215,7 @@ export const AssetList: React.FC<AssetListProps> = ({
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            className="flex-1 sm:flex-initial min-h-[42px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           >
             <option value="ALL">Semua Kategori</option>
             {CATEGORIES.map((cat) => (
@@ -225,7 +229,7 @@ export const AssetList: React.FC<AssetListProps> = ({
           <select
             value={selectedCondition}
             onChange={(e) => setSelectedCondition(e.target.value)}
-            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            className="flex-1 sm:flex-initial min-h-[42px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           >
             <option value="ALL">Semua Kondisi</option>
             <option value="Baik">Kondisi: Baik</option>
@@ -234,34 +238,41 @@ export const AssetList: React.FC<AssetListProps> = ({
             <option value="Rusak Berat">Rusak Berat</option>
           </select>
 
-          {/* View Toggle */}
-          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-            <button
-              onClick={() => setViewMode('table')}
-              className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition ${
-                viewMode === 'table' ? 'bg-white shadow-xs text-slate-900 font-semibold' : 'text-slate-600'
-              }`}
-            >
-              Tabel
-            </button>
-            <button
-              onClick={() => setViewMode('cards')}
-              className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition ${
-                viewMode === 'cards' ? 'bg-white shadow-xs text-slate-900 font-semibold' : 'text-slate-600'
-              }`}
-            >
-              Kartu
-            </button>
-          </div>
+          {/* View Toggle (Desktop Web) */}
+          {!isMobileLayout && (
+            <div className="hidden md:flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition cursor-pointer ${
+                  viewMode === 'table' ? 'bg-white shadow-xs text-slate-900 font-semibold' : 'text-slate-600'
+                }`}
+              >
+                Tabel
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('cards')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition cursor-pointer ${
+                  viewMode === 'cards' ? 'bg-white shadow-xs text-slate-900 font-semibold' : 'text-slate-600'
+                }`}
+              >
+                Kartu
+              </button>
+            </div>
+          )}
 
-          {/* Add Asset Button */}
-          <button
-            onClick={onOpenAddAssetModal}
-            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Tambah Aset</span>
-          </button>
+          {/* Add Asset Button (Desktop Web) */}
+          {!isMobileLayout && (
+            <button
+              type="button"
+              onClick={onOpenAddAssetModal}
+              className="hidden md:flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Tambah Aset</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -337,7 +348,7 @@ export const AssetList: React.FC<AssetListProps> = ({
             Tampilkan Semua Aset
           </button>
         </div>
-      ) : viewMode === 'table' ? (
+      ) : effectiveViewMode === 'table' ? (
         /* TABLE VIEW */
         <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
@@ -542,19 +553,29 @@ export const AssetList: React.FC<AssetListProps> = ({
         </div>
       ) : (
         /* CARDS / GRID VIEW */
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div
+          className={
+            isMobileLayout
+              ? 'grid grid-cols-1 gap-3'
+              : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4'
+          }
+        >
           {filteredAssets.map((asset) => (
             <div
               key={asset.id}
-              className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs hover:shadow-md transition flex flex-col justify-between"
+              className="bg-white rounded-2xl border border-slate-200 overflow-hidden transition flex flex-col justify-between"
             >
               <div>
                 {/* Image Header */}
-                <div className="h-40 bg-slate-100 relative group overflow-hidden border-b border-slate-100">
+                <div
+                  onClick={() => setSelectedAssetDetail(asset)}
+                  className="h-40 bg-slate-100 relative group overflow-hidden border-b border-slate-100 cursor-pointer"
+                >
                   {asset.lastPhotoUrl ? (
                     <img
                       src={asset.lastPhotoUrl}
                       alt={asset.name}
+                      referrerPolicy="no-referrer"
                       className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                     />
                   ) : (
@@ -565,7 +586,7 @@ export const AssetList: React.FC<AssetListProps> = ({
                   )}
 
                   <div className="absolute top-2.5 left-2.5">
-                    <span className="font-mono text-[10px] font-bold bg-slate-900/80 backdrop-blur-xs text-white px-2 py-0.5 rounded-md">
+                    <span className="font-mono text-[10px] font-bold bg-slate-900/85 backdrop-blur-xs text-white px-2 py-0.5 rounded-md tabular-nums">
                       {asset.id}
                     </span>
                   </div>
@@ -578,23 +599,28 @@ export const AssetList: React.FC<AssetListProps> = ({
                 {/* Content */}
                 <div className="p-4 space-y-3">
                   <div>
-                    <span className="text-[10px] font-semibold text-blue-600 uppercase tracking-wider">
-                      {asset.category}
-                    </span>
-                    <h4 className="font-semibold text-sm text-slate-900 line-clamp-1 mt-0.5">
+                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                      <span className="font-semibold text-blue-700">{asset.category}</span>
+                      <span aria-hidden="true">·</span>
+                      <span className="truncate">SKU {asset.sku}</span>
+                    </div>
+                    <h4
+                      onClick={() => setSelectedAssetDetail(asset)}
+                      className="font-semibold text-sm text-slate-900 line-clamp-1 mt-0.5 cursor-pointer hover:text-blue-600"
+                    >
                       {asset.name}
                     </h4>
                     <p className="text-xs text-slate-500 flex items-center gap-1 mt-1">
-                      <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       <span className="truncate">{asset.location}</span>
                     </p>
                   </div>
 
                   {/* Stock Bar */}
-                  <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-xs">
+                  <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs">
                     <div className="flex justify-between items-center mb-1">
-                      <span className="text-slate-500">Stok Tersedia:</span>
-                      <span className="font-bold text-slate-900">
+                      <span className="text-slate-500">Stok Tersedia</span>
+                      <span className="font-bold text-slate-900 tabular-nums">
                         {asset.availableStock} / {asset.totalStock} {asset.unit}
                       </span>
                     </div>
@@ -612,7 +638,7 @@ export const AssetList: React.FC<AssetListProps> = ({
                         className="bg-blue-500 h-full"
                       ></div>
                     </div>
-                    <div className="flex justify-between items-center text-[10px] text-slate-400 mt-1">
+                    <div className="flex justify-between items-center text-[11px] text-slate-500 mt-1 tabular-nums">
                       <span>Dipinjam: {asset.borrowedStock}</span>
                       <span>Kondisi: {asset.condition}</span>
                     </div>
@@ -621,44 +647,41 @@ export const AssetList: React.FC<AssetListProps> = ({
               </div>
 
               {/* Card Footer Actions */}
-              <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2">
-                <span className="text-xs font-bold text-slate-800">
+              <div className="px-3.5 py-2.5 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-slate-900 tabular-nums truncate">
                   {formatIDR(asset.purchasePrice)}
                 </span>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 shrink-0">
                   <button
+                    type="button"
                     onClick={() => setSelectedAssetDetail(asset)}
-                    className="p-1.5 bg-white hover:bg-slate-100 text-blue-600 border border-slate-200 rounded-lg transition"
+                    className="min-h-[40px] min-w-[40px] flex items-center justify-center bg-white hover:bg-slate-100 text-blue-600 border border-slate-200 rounded-xl transition cursor-pointer"
                     title="Lihat Detail Aset"
                   >
-                    <Eye className="w-3.5 h-3.5" />
+                    <Eye className="w-4 h-4" />
                   </button>
                   <button
+                    type="button"
                     onClick={() => onOpenLabelModal(asset)}
-                    className="p-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg transition"
+                    className="min-h-[40px] min-w-[40px] flex items-center justify-center bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl transition cursor-pointer"
                     title="Cetak Label QR"
                   >
-                    <QrCode className="w-3.5 h-3.5" />
+                    <QrCode className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => onOpenDepreciationModal(asset)}
-                    className="p-1.5 bg-white hover:bg-slate-100 text-blue-600 border border-slate-200 rounded-lg transition"
-                    title="Kalkulator Depresiasi"
-                  >
-                    <Calculator className="w-3.5 h-3.5" />
-                  </button>
-                  <button
+                    type="button"
                     onClick={() => onOpenEditModal(asset)}
-                    className="p-1.5 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-lg transition"
+                    className="min-h-[40px] min-w-[40px] flex items-center justify-center bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-xl transition cursor-pointer"
                     title="Edit Detail Aset"
                   >
-                    <Edit2 className="w-3.5 h-3.5" />
+                    <Edit2 className="w-4 h-4" />
                   </button>
                   <button
+                    type="button"
                     onClick={() => onOpenTransactionModal(asset)}
-                    className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition cursor-pointer"
+                    className="min-h-[40px] flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition cursor-pointer whitespace-nowrap"
                   >
-                    <ArrowRightLeft className="w-3 h-3" />
+                    <ArrowRightLeft className="w-3.5 h-3.5" />
                     <span>Pinjam</span>
                   </button>
                 </div>
