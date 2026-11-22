@@ -247,6 +247,7 @@ export default function App() {
   const [selectedAssetForLabel, setSelectedAssetForLabel] = useState<OfficeAsset | null>(null);
 
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [initialScanQuery, setInitialScanQuery] = useState<string | null>(null);
 
   const [isBastModalOpen, setIsBastModalOpen] = useState(false);
   const [selectedTrxForBast, setSelectedTrxForBast] = useState<AssetTransaction | null>(null);
@@ -367,6 +368,18 @@ export default function App() {
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Open scanned asset automatically if opened from QR link (?asset=...)
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const assetParam = params.get('asset');
+      if (assetParam) {
+        setInitialScanQuery(assetParam);
+        setIsScanModalOpen(true);
+      }
+    } catch {}
   }, []);
 
   // Initialize Firebase Auth
@@ -1160,10 +1173,14 @@ export default function App() {
       {/* Live Camera, Barcode & QR Scanner Modal */}
       <BarcodeScannerModal
         isOpen={isScanModalOpen}
-        onClose={() => setIsScanModalOpen(false)}
+        onClose={() => {
+          setIsScanModalOpen(false);
+          setInitialScanQuery(null);
+        }}
         allAssets={assets}
         onSelectAssetForTransaction={handleOpenTransactionForAsset}
         onSelectAssetForLabel={handleOpenLabelForAsset}
+        initialQuery={initialScanQuery}
       />
 
       {/* BAST Digital Modal */}

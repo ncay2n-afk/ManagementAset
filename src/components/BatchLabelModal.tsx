@@ -57,24 +57,24 @@ export const BatchLabelModal: React.FC<BatchLabelModalProps> = ({
     if (!isOpen) return;
     const targets = allAssets.filter((a) => selectedIds.includes(a.id));
     const newQrMap: Record<string, string> = {};
+    const canUseHttpLink = typeof window !== 'undefined' && window.location.protocol.startsWith('http');
+    const cleanBase = canUseHttpLink
+      ? `${window.location.origin}${window.location.pathname.replace(/index\.html$/, '')}`
+      : '';
 
     Promise.all(
       targets.map(async (asset) => {
         try {
-          const url = await QRCode.toDataURL(
-            JSON.stringify({
-              id: asset.id,
-              name: asset.name,
-              sku: asset.sku,
-              loc: asset.location,
-              pic: asset.custodian,
-            }),
-            {
-              width: 180,
-              margin: 1,
-              color: { dark: '#0f172a', light: '#ffffff' },
-            }
-          );
+          const qrPayload = canUseHttpLink
+            ? `${cleanBase}?asset=${encodeURIComponent(asset.id)}`
+            : asset.id;
+
+          const url = await QRCode.toDataURL(qrPayload, {
+            width: 280,
+            margin: 2,
+            errorCorrectionLevel: 'M',
+            color: { dark: '#0f172a', light: '#ffffff' },
+          });
           newQrMap[asset.id] = url;
         } catch (e) {
           console.error(e);
@@ -300,10 +300,10 @@ export const BatchLabelModal: React.FC<BatchLabelModalProps> = ({
                       <img
                         src={qrMap[asset.id]}
                         alt={`QR ${asset.id}`}
-                        className="w-16 h-16 shrink-0 border border-slate-300 rounded"
+                        className="w-20 h-20 shrink-0 border border-slate-300 rounded bg-white p-0.5"
                       />
                     ) : (
-                      <div className="w-16 h-16 bg-slate-100 flex items-center justify-center text-[9px] text-slate-400">
+                      <div className="w-20 h-20 bg-slate-100 flex items-center justify-center text-[9px] text-slate-400">
                         QR...
                       </div>
                     )}

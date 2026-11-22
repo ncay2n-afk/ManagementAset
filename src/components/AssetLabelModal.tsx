@@ -25,6 +25,7 @@ export const AssetLabelModal: React.FC<AssetLabelModalProps> = ({
   const [departmentName, setDepartmentName] = useState(companySettings?.brandSubtitle || 'GENERAL AFFAIRS & IT DIVISION');
   const [labelSize, setLabelSize] = useState<'standard' | 'compact'>('standard');
   const [logoSize, setLogoSize] = useState<'normal' | 'large' | 'xlarge'>('large');
+  const [qrContentMode, setQrContentMode] = useState<'link' | 'code' | 'json'>('link');
 
   useEffect(() => {
     if (companySettings) {
@@ -40,21 +41,29 @@ export const AssetLabelModal: React.FC<AssetLabelModalProps> = ({
   useEffect(() => {
     if (selectedAsset) {
       const parsed = parseAssetCode(selectedAsset.id);
-      const qrPayload = JSON.stringify({
-        id: selectedAsset.id,
-        name: selectedAsset.name,
-        sku: selectedAsset.sku,
-        bidang: parsed.bidangName,
-        divisi: parsed.divisiName,
-        sub: parsed.subKelompokName,
-        tahun: `20${parsed.tahun}`,
-        pic: selectedAsset.custodian,
-        loc: selectedAsset.location,
-      });
+      let qrPayload = selectedAsset.id;
+
+      if (qrContentMode === 'link' && typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
+        const cleanPath = window.location.pathname.replace(/index\.html$/, '');
+        qrPayload = `${window.location.origin}${cleanPath}?asset=${encodeURIComponent(selectedAsset.id)}`;
+      } else if (qrContentMode === 'json') {
+        qrPayload = JSON.stringify({
+          id: selectedAsset.id,
+          name: selectedAsset.name,
+          sku: selectedAsset.sku,
+          bidang: parsed.bidangName,
+          divisi: parsed.divisiName,
+          sub: parsed.subKelompokName,
+          tahun: `20${parsed.tahun}`,
+          pic: selectedAsset.custodian,
+          loc: selectedAsset.location,
+        });
+      }
 
       QRCode.toDataURL(qrPayload, {
-        width: 250,
-        margin: 1,
+        width: 320,
+        margin: 2,
+        errorCorrectionLevel: 'M',
         color: {
           dark: '#0f172a',
           light: '#ffffff',
@@ -63,7 +72,7 @@ export const AssetLabelModal: React.FC<AssetLabelModalProps> = ({
         .then((url) => setQrDataUrl(url))
         .catch((err) => console.error(err));
     }
-  }, [selectedAsset]);
+  }, [selectedAsset, qrContentMode]);
 
   if (!isOpen || !selectedAsset) return null;
 
@@ -225,6 +234,47 @@ export const AssetLabelModal: React.FC<AssetLabelModalProps> = ({
                   onChange={(e) => setDepartmentName(e.target.value)}
                   className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
                 />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                Format Isi QR Code (Pengaruh ke Kepadatan Titik QR)
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setQrContentMode('link')}
+                  className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition cursor-pointer ${
+                    qrContentMode === 'link'
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  Link Aset (Bisa Discan Kamera HP)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQrContentMode('code')}
+                  className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition cursor-pointer ${
+                    qrContentMode === 'code'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  Kode Aset Saja (Titik Paling Besar)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQrContentMode('json')}
+                  className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition cursor-pointer ${
+                    qrContentMode === 'json'
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  Detail JSON Lengkap
+                </button>
               </div>
             </div>
 
