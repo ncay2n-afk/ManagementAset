@@ -19,7 +19,6 @@ export const SCOPES = [
 ];
 
 const provider = new GoogleAuthProvider();
-// Add required Workspace scopes
 SCOPES.forEach((scope) => {
   provider.addScope(scope);
 });
@@ -31,7 +30,20 @@ let isSigningIn = false;
 let cachedAccessToken: string | null = null;
 let cachedUser: User | null = null;
 
-// Initialize auth state listener. Call this on app load.
+export class AuthSignInError extends Error {
+  code: string;
+  hostname: string;
+  origin: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = 'AuthSignInError';
+    this.code = code;
+    this.hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+    this.origin = typeof window !== 'undefined' ? window.location.origin : '';
+  }
+}
+
 export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
@@ -42,7 +54,6 @@ export const initAuth = (
       if (cachedAccessToken) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
       } else if (!isSigningIn) {
-        // User logged in via Firebase session but access token needs fresh user interaction
         if (onAuthFailure) onAuthFailure();
       }
     } else {
@@ -58,7 +69,10 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
-      throw new Error('Gagal mendapatkan token akses dari Google OAuth');
+      throw new AuthSignInError(
+        'auth/missing-token',
+        'Gagal mendapatkan token akses Google OAuth. Pastikan popup OAuth selesai dan izin Drive/Sheets/Gmail disetujui.'
+      );
     }
 
     cachedAccessToken = credential.accessToken;
@@ -66,7 +80,37 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
     console.error('Google Sign-In Error:', error);
-    throw error;
+    const code = error?.code || 'auth/unknown';
+    const host = typeof window !== 'undefined' ? window.location.hostname : 'domain ini';
+
+    if (code === 'auth/unauthorized-domain') {
+      throw new AuthSignInError(
+        code,
+        `Domain "${host}" belum diotorisasi di Firebase Authentication. Tambahkan "${host}" ke Authorized Domains di Firebase Console dan Google Cloud Console.`
+      );
+    }
+    if (code === 'auth/popup-blocked') {
+      throw new AuthSignInError(
+        code,
+        'Popup login diblokir oleh browser. Izinkan popup untuk situs ini lalu klik Masuk lagi.'
+      );
+    }
+    if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+      throw new AuthSignInError(
+        code,
+        'Jendela login Google ditutup sebelum selesai. Silakan coba masuk kembali.'
+      );
+    }
+    if (code === 'auth/operation-not-allowed') {
+      throw new AuthSignInError(
+        code,
+        'Provider Google Sign-In belum diaktifkan di Firebase Console.'
+      );
+    }
+    if (error instanceof AuthSignInError) {
+      throw error;
+    }
+    throw new AuthSignInError(code, error?.message || 'Gagal masuk dengan Google OAuth');
   } finally {
     isSigningIn = false;
   }

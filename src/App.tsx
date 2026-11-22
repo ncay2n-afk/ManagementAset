@@ -64,8 +64,10 @@ import { DepreciationCalculatorModal } from './components/DepreciationCalculator
 import { BatchLabelModal } from './components/BatchLabelModal';
 import { BatchImportModal } from './components/BatchImportModal';
 import { WarrantyAlertsBanner } from './components/WarrantyAlertsBanner';
+import { AuthDomainHelpModal } from './components/AuthDomainHelpModal';
 import {
   syncAssetsToSheet,
+  fetchAssetsFromSheet,
   createSpreadsheet
 } from './services/sheetsService';
 import { CheckCircle2, AlertCircle, Monitor, Smartphone, Laptop } from 'lucide-react';
@@ -248,6 +250,11 @@ export default function App() {
 
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [initialScanQuery, setInitialScanQuery] = useState<string | null>(null);
+  const [authHelpModal, setAuthHelpModal] = useState<{ isOpen: boolean; code: string; message: string }>({
+    isOpen: false,
+    code: '',
+    message: '',
+  });
 
   const [isBastModalOpen, setIsBastModalOpen] = useState(false);
   const [selectedTrxForBast, setSelectedTrxForBast] = useState<AssetTransaction | null>(null);
@@ -376,7 +383,7 @@ export default function App() {
       const params = new URLSearchParams(window.location.search);
       const assetParam = params.get('asset');
       if (assetParam) {
-        setInitialScanQuery(assetParam);
+        setInitialScanQuery(window.location.search);
         setIsScanModalOpen(true);
       }
     } catch {}
@@ -406,15 +413,31 @@ export default function App() {
       const res = await googleSignIn();
       setUser(res.user);
       setToken(res.accessToken);
+      setAuthHelpModal({ isOpen: false, code: '', message: '' });
       setToastMessage({
         type: 'success',
         text: `Berhasil terhubung dengan Google Workspace (${res.user.email})`,
       });
     } catch (err: any) {
+      const code = err?.code || 'auth/error';
+      const msg = err?.message || 'Gagal masuk dengan Google OAuth';
       setToastMessage({
         type: 'error',
-        text: err.message || 'Gagal masuk dengan Google OAuth',
+        text: msg,
       });
+
+      if (
+        code === 'auth/unauthorized-domain' ||
+        code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-allowed' ||
+        code === 'auth/missing-token'
+      ) {
+        setAuthHelpModal({
+          isOpen: true,
+          code,
+          message: msg,
+        });
+      }
     }
   };
 
@@ -474,6 +497,41 @@ export default function App() {
       setIsSyncing(false);
     }
   }, [token, workspaceConfig.spreadsheetId, assets]);
+
+  // Pull / Load Assets from Google Sheets to current device
+  const handlePullFromSheet = useCallback(async () => {
+    if (!token || !workspaceConfig.spreadsheetId) {
+      setToastMessage({
+        type: 'info',
+        text: 'Hubungkan akun Google dan isi ID Spreadsheet terlebih dahulu.',
+      });
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const sheetAssets = await fetchAssetsFromSheet(token, workspaceConfig.spreadsheetId);
+      if (sheetAssets.length === 0) {
+        setToastMessage({
+          type: 'info',
+          text: 'Spreadsheet masih kosong (belum ada baris aset).',
+        });
+        return;
+      }
+      setAssets(sheetAssets);
+      setToastMessage({
+        type: 'success',
+        text: `Berhasil memuat ${sheetAssets.length} aset dari Google Sheets ke perangkat ini!`,
+      });
+    } catch (err: any) {
+      setToastMessage({
+        type: 'error',
+        text: err.message || 'Gagal mengambil data dari Google Sheets',
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [token, workspaceConfig.spreadsheetId]);
 
   // Transaction Success Handler
   const handleTransactionSuccess = (
@@ -880,6 +938,14 @@ export default function App() {
           onUpdateConfig={(newCfg) => setWorkspaceConfig((prev) => ({ ...prev, ...newCfg }))}
           assets={assets}
           onSyncAll={handleManualSync}
+          onPullFromSheet={handlePullFromSheet}
+          onOpenAuthHelp={() =>
+            setAuthHelpModal({
+              isOpen: true,
+              code: 'github-pages-oauth-checklist',
+              message: `Jika login gagal di ${typeof window !== 'undefined' ? window.location.hostname : 'GitHub Pages'}, pastikan domain & origin sudah didaftarkan di Firebase dan Google Cloud Console.`,
+            })
+          }
           isSyncing={isSyncing}
         />
       )}
@@ -1180,7 +1246,17 @@ export default function App() {
         allAssets={assets}
         onSelectAssetForTransaction={handleOpenTransactionForAsset}
         onSelectAssetForLabel={handleOpenLabelForAsset}
+        onSelectAssetForEdit={handleOpenEditForAsset}
         initialQuery={initialScanQuery}
+      />
+
+      {/* GitHub Pages / Firebase OAuth Help Modal */}
+      <AuthDomainHelpModal
+        isOpen={authHelpModal.isOpen}
+        onClose={() => setAuthHelpModal((prev) => ({ ...prev, isOpen: false }))}
+        errorCode={authHelpModal.code}
+        errorMessage={authHelpModal.message}
+        onRetrySignIn={handleSignIn}
       />
 
       {/* BAST Digital Modal */}

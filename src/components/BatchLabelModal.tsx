@@ -65,9 +65,16 @@ export const BatchLabelModal: React.FC<BatchLabelModalProps> = ({
     Promise.all(
       targets.map(async (asset) => {
         try {
-          const qrPayload = canUseHttpLink
-            ? `${cleanBase}?asset=${encodeURIComponent(asset.id)}`
-            : asset.id;
+          let qrPayload = asset.id;
+          if (canUseHttpLink) {
+            const params = new URLSearchParams();
+            params.set('asset', asset.id);
+            if (asset.name) params.set('n', asset.name.slice(0, 45));
+            if (asset.location) params.set('l', asset.location.slice(0, 35));
+            if (asset.custodian) params.set('p', asset.custodian.slice(0, 30));
+            if (asset.notes) params.set('d', asset.notes.slice(0, 60));
+            qrPayload = `${cleanBase}?${params.toString()}`;
+          }
 
           const url = await QRCode.toDataURL(qrPayload, {
             width: 280,

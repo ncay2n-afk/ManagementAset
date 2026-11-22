@@ -11,11 +11,30 @@ import {
   CameraOff,
   SwitchCamera,
   ImagePlus,
-  Flashlight
+  Flashlight,
+  User,
+  Tag,
+  FileText,
+  Calendar,
+  DollarSign,
+  Shield,
+  Edit2,
+  Package
 } from 'lucide-react';
 import jsQR from 'jsqr';
 import { OfficeAsset } from '../types';
 import { parseAssetCode } from '../data/assetCodeGenerator';
+import { formatRupiah } from '../utils/currencyFormatter';
+
+interface EmbeddedQrMetadata {
+  id: string;
+  name?: string;
+  sku?: string;
+  location?: string;
+  custodian?: string;
+  category?: string;
+  notes?: string;
+}
 
 interface BarcodeScannerModalProps {
   isOpen: boolean;
@@ -23,28 +42,44 @@ interface BarcodeScannerModalProps {
   allAssets: OfficeAsset[];
   onSelectAssetForTransaction: (asset: OfficeAsset) => void;
   onSelectAssetForLabel: (asset: OfficeAsset) => void;
+  onSelectAssetForEdit?: (asset: OfficeAsset) => void;
   initialQuery?: string | null;
 }
 
 /**
- * Extract asset identifier from various QR payload formats:
- * 1. Direct URL containing ?asset=01.14.001.001.24
- * 2. JSON string containing { id: "01.14.001.001.24", sku: "..." }
+ * Extract asset identifier and optional embedded fallback metadata from QR payload:
+ * 1. Direct URL containing ?asset=01.14.001.001.24 (&n=..., &l=..., &p=..., &d=...)
+ * 2. JSON string containing { id, name, sku, loc, pic, desc }
  * 3. Plain asset ID or SKU text
  */
-export function extractAssetLookupCode(rawValue: string): string {
+export function parseQrPayload(rawValue: string): { lookupCode: string; embedded: EmbeddedQrMetadata | null } {
   const trimmed = rawValue.trim();
-  if (!trimmed) return '';
+  if (!trimmed) return { lookupCode: '', embedded: null };
 
   // 1. Check URL ?asset= parameter
   if (/^https?:\/\//i.test(trimmed) || trimmed.includes('?asset=')) {
     try {
-      const url = new URL(trimmed.startsWith('http') ? trimmed : `https://example.com/${trimmed.replace(/^\/+/, '')}`);
+      const url = new URL(
+        trimmed.startsWith('http') ? trimmed : `https://example.com/${trimmed.replace(/^\/+/, '')}`
+      );
       const assetParam = url.searchParams.get('asset') || url.searchParams.get('id');
-      if (assetParam) return assetParam.trim();
+      if (assetParam) {
+        const cleanId = assetParam.trim();
+        const n = url.searchParams.get('n') || undefined;
+        const l = url.searchParams.get('l') || undefined;
+        const p = url.searchParams.get('p') || undefined;
+        const d = url.searchParams.get('d') || undefined;
+        const s = url.searchParams.get('s') || undefined;
+        return {
+          lookupCode: cleanId,
+          embedded: n || l || p || d || s ? { id: cleanId, name: n, location: l, custodian: p, notes: d, sku: s } : null,
+        };
+      }
     } catch {
       const match = trimmed.match(/[?&](?:asset|id)=([^&#]+)/i);
-      if (match?.[1]) return decodeURIComponent(match[1]).trim();
+      if (match?.[1]) {
+        return { lookupCode: decodeURIComponent(match[1]).trim(), embedded: null };
+      }
     }
   }
 
@@ -52,14 +87,31 @@ export function extractAssetLookupCode(rawValue: string): string {
   if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
     try {
       const parsed = JSON.parse(trimmed);
-      if (parsed.id) return String(parsed.id).trim();
-      if (parsed.sku) return String(parsed.sku).trim();
+      const code = String(parsed.id || parsed.sku || '').trim();
+      if (code) {
+        return {
+          lookupCode: code,
+          embedded: {
+            id: code,
+            name: parsed.name ? String(parsed.name) : undefined,
+            sku: parsed.sku ? String(parsed.sku) : undefined,
+            location: parsed.loc || parsed.location ? String(parsed.loc || parsed.location) : undefined,
+            custodian: parsed.pic || parsed.custodian ? String(parsed.pic || parsed.custodian) : undefined,
+            category: parsed.sub || parsed.bidang ? String(parsed.sub || parsed.bidang) : undefined,
+            notes: parsed.desc || parsed.notes ? String(parsed.desc || parsed.notes) : undefined,
+          },
+        };
+      }
     } catch {
       // Fall through to plain text
     }
   }
 
-  return trimmed;
+  return { lookupCode: trimmed, embedded: null };
+}
+
+export function extractAssetLookupCode(rawValue: string): string {
+  return parseQrPayload(rawValue).lookupCode;
 }
 
 async function decodeQrOrBarcodeFromCanvas(
@@ -118,10 +170,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   allAssets,
   onSelectAssetForTransaction,
   onSelectAssetForLabel,
+  onSelectAssetForEdit,
   initialQuery = null,
 }) => {
   const [inputCode, setInputCode] = useState('');
   const [matchedAsset, setMatchedAsset] = useState<OfficeAsset | null>(null);
+  const [embeddedFallback, setEmbeddedFallback] = useState<EmbeddedQrMetadata | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
   // Live Camera Scanner State
@@ -162,10 +216,11 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
   const handleSearch = useCallback(
     (rawInput: string) => {
-      const extracted = extractAssetLookupCode(rawInput);
-      const targetCode = extracted.toLowerCase();
+      const { lookupCode, embedded } = parseQrPayload(rawInput);
+      const targetCode = lookupCode.toLowerCase();
       if (!targetCode) {
         setMatchedAsset(null);
+        setEmbeddedFallback(null);
         setHasSearched(false);
         return;
       }
@@ -181,6 +236,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         );
 
       setMatchedAsset(found || null);
+      setEmbeddedFallback(!found ? embedded : null);
     },
     [allAssets]
   );
@@ -188,7 +244,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   // Pre-fill when opened from URL deep-link (?asset=...)
   useEffect(() => {
     if (isOpen && initialQuery) {
-      setInputCode(initialQuery);
+      const parsed = parseQrPayload(initialQuery);
+      setInputCode(parsed.lookupCode || initialQuery);
       handleSearch(initialQuery);
     }
   }, [isOpen, initialQuery, handleSearch]);
@@ -228,7 +285,6 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       const currentVideo = videoRef.current;
       const canvas = canvasRef.current;
 
-      // Scan every ~120ms so mobile CPU stays responsive and autofocus works smoothly
       if (
         currentVideo &&
         canvas &&
@@ -257,7 +313,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             ctx.drawImage(currentVideo, 0, 0, targetW, targetH);
             const decoded = await decodeQrOrBarcodeFromCanvas(canvas, ctx);
             if (decoded && !cancelled) {
-              const lookupCode = extractAssetLookupCode(decoded);
+              const { lookupCode } = parseQrPayload(decoded);
               setInputCode(lookupCode || decoded);
               handleSearch(decoded);
               setScanNotice('QR Code berhasil dipindai!');
@@ -318,7 +374,6 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             },
           });
         } catch {
-          // Fallback for mobile devices or webviews with strict constraint checks
           stream = await navigator.mediaDevices.getUserMedia({
             audio: false,
             video: targetFacing === 'environment' ? { facingMode: 'environment' } : true,
@@ -387,7 +442,6 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     startCamera(nextFacing);
   };
 
-  // Native Phone Camera Photo / Gallery QR Fallback (works even in restricted iframes or HTTP)
   const handleImageFileScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -420,7 +474,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           const decoded = await decodeQrOrBarcodeFromCanvas(offscreen, ctx);
 
           if (decoded) {
-            const lookupCode = extractAssetLookupCode(decoded);
+            const { lookupCode } = parseQrPayload(decoded);
             setInputCode(lookupCode || decoded);
             handleSearch(decoded);
             setScanNotice('QR Code dari foto berhasil terbaca!');
@@ -449,7 +503,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto">
-      <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-auto max-h-[92vh] flex flex-col">
+      <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-auto max-h-[92vh] flex flex-col">
         {/* Header */}
         <div className="bg-slate-900 text-white px-4 sm:px-6 py-4 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -457,7 +511,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               <Scan className="w-5 h-5" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-sm sm:text-base font-bold truncate">Pindai QR &amp; Barcode Aset</h3>
+              <h3 className="text-sm sm:text-base font-bold truncate">Pindai QR &amp; Detail Aset</h3>
               <p className="text-[11px] sm:text-xs text-slate-400 truncate">
                 Kamera live HP, foto stiker, atau ketik kode aset
               </p>
@@ -490,7 +544,6 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
           {/* Live Camera Scanner Box */}
           <div className="bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 relative">
-            {/* Always-mounted video & canvas so ref is guaranteed ready */}
             <div
               className={
                 isCameraActive
@@ -659,41 +712,154 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             </div>
           </div>
 
-          {/* Matched Asset Result Card */}
+          {/* Matched Asset Full Detail Card */}
           {matchedAsset ? (
-            <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <span className="font-mono text-xs font-black bg-amber-200 text-amber-950 px-2.5 py-0.5 rounded border border-amber-300 tracking-wider inline-block">
-                    {matchedAsset.id}
-                  </span>
-                  <h4 className="font-bold text-sm text-slate-900 mt-1.5">
+            <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-3.5">
+              {/* Top Row: Photo + Identity */}
+              <div className="flex items-start gap-3">
+                {matchedAsset.lastPhotoUrl ? (
+                  <img
+                    src={matchedAsset.lastPhotoUrl}
+                    alt={matchedAsset.name}
+                    referrerPolicy="no-referrer"
+                    className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl object-cover border border-emerald-200 bg-white shrink-0"
+                  />
+                ) : (
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl bg-white border border-emerald-200 flex items-center justify-center text-slate-400 shrink-0">
+                    <Package className="w-7 h-7" />
+                  </div>
+                )}
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-mono text-xs font-black bg-amber-200 text-amber-950 px-2 py-0.5 rounded border border-amber-300 tracking-wider">
+                      {matchedAsset.id}
+                    </span>
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-white border border-emerald-200 text-emerald-800">
+                      {matchedAsset.status}
+                    </span>
+                    <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700">
+                      Kondisi: {matchedAsset.condition}
+                    </span>
+                  </div>
+
+                  <h4 className="font-bold text-sm sm:text-base text-slate-900 mt-1.5 leading-snug">
                     {matchedAsset.name}
                   </h4>
-                  <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5 flex-wrap">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span>{matchedAsset.location}</span>
-                    <span>· SKU: {matchedAsset.sku}</span>
-                  </p>
 
-                  {parsed && (
-                    <div className="mt-2 text-[11px] text-slate-600 bg-white/80 p-2 rounded-lg border border-emerald-200/80 space-y-0.5">
-                      <div>Bidang: <strong>{parsed.bidangName}</strong></div>
-                      <div>Divisi: <strong>{parsed.divisiName}</strong> · Sub: <strong>{parsed.subKelompokName}</strong></div>
-                    </div>
-                  )}
-                </div>
-                <div className="text-right shrink-0">
-                  <span className="text-xs font-bold text-emerald-800 block tabular-nums">
-                    {matchedAsset.availableStock} {matchedAsset.unit} Tersedia
-                  </span>
-                  <span className="text-[11px] text-slate-500 tabular-nums">
-                    Total: {matchedAsset.totalStock} {matchedAsset.unit}
-                  </span>
+                  <p className="text-xs text-slate-600 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span className="inline-flex items-center gap-1">
+                      <Tag className="w-3 h-3 text-blue-600" />
+                      {matchedAsset.category}
+                    </span>
+                    <span>· SKU: {matchedAsset.sku}</span>
+                    {matchedAsset.serialNumber && <span>· SN: {matchedAsset.serialNumber}</span>}
+                  </p>
                 </div>
               </div>
 
-              <div className="pt-2 border-t border-emerald-200/60 flex items-center justify-between gap-2">
+              {/* Description / Notes Box */}
+              <div className="bg-white p-3 rounded-xl border border-emerald-200/80 space-y-1">
+                <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  <FileText className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Deskripsi &amp; Spesifikasi Aset</span>
+                </div>
+                <p className="text-xs text-slate-800 leading-relaxed">
+                  {matchedAsset.notes?.trim()
+                    ? matchedAsset.notes
+                    : 'Belum ada catatan atau deskripsi detail untuk aset ini.'}
+                </p>
+              </div>
+
+              {/* Detail Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                <div className="bg-white p-2.5 rounded-xl border border-emerald-200/70 flex items-start gap-2">
+                  <MapPin className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <span className="text-[10px] uppercase font-semibold text-slate-400 block">Lokasi Penempatan</span>
+                    <span className="font-semibold text-slate-800 break-words">{matchedAsset.location}</span>
+                  </div>
+                </div>
+
+                <div className="bg-white p-2.5 rounded-xl border border-emerald-200/70 flex items-start gap-2">
+                  <User className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <span className="text-[10px] uppercase font-semibold text-slate-400 block">PIC / Penanggung Jawab</span>
+                    <span className="font-semibold text-slate-800 break-words">{matchedAsset.custodian}</span>
+                  </div>
+                </div>
+
+                <div className="bg-white p-2.5 rounded-xl border border-emerald-200/70 flex items-start gap-2">
+                  <Package className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="text-[10px] uppercase font-semibold text-slate-400 block">Stok Inventaris</span>
+                    <span className="font-bold text-emerald-800 tabular-nums">
+                      {matchedAsset.availableStock} / {matchedAsset.totalStock} {matchedAsset.unit} tersedia
+                    </span>
+                    <span className="block text-[10px] text-slate-500 tabular-nums">
+                      Dipinjam: {matchedAsset.borrowedStock} · Rusak: {matchedAsset.damagedStock}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-white p-2.5 rounded-xl border border-emerald-200/70 flex items-start gap-2">
+                  <DollarSign className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="text-[10px] uppercase font-semibold text-slate-400 block">Nilai &amp; Tgl Perolehan</span>
+                    <span className="font-bold text-slate-900 tabular-nums">
+                      {formatRupiah(matchedAsset.purchasePrice)}
+                    </span>
+                    <span className="flex items-center gap-1 text-[10px] text-slate-500">
+                      <Calendar className="w-3 h-3" />
+                      {matchedAsset.purchaseDate || '-'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {(matchedAsset.warrantyExpiryDate || matchedAsset.taxExpiryDate) && (
+                <div className="bg-white p-2.5 rounded-xl border border-emerald-200/70 flex flex-wrap gap-3 text-[11px] text-slate-700">
+                  {matchedAsset.warrantyExpiryDate && (
+                    <span className="inline-flex items-center gap-1">
+                      <Shield className="w-3.5 h-3.5 text-blue-600" />
+                      Garansi s/d: <strong>{matchedAsset.warrantyExpiryDate}</strong>
+                    </span>
+                  )}
+                  {matchedAsset.taxExpiryDate && (
+                    <span className="inline-flex items-center gap-1">
+                      <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                      Pajak/STNK: <strong>{matchedAsset.taxExpiryDate}</strong>
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {parsed && parsed.isValid && (
+                <div className="text-[11px] text-slate-600 bg-white/80 p-2.5 rounded-xl border border-emerald-200/80 flex flex-wrap gap-x-3 gap-y-1">
+                  <span>Bidang: <strong>{parsed.bidangName}</strong></span>
+                  <span>Divisi: <strong>{parsed.divisiName}</strong></span>
+                  <span>Sub: <strong>{parsed.subKelompokName}</strong></span>
+                  <span>Tahun: <strong>20{parsed.tahun}</strong></span>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="pt-2 border-t border-emerald-200/60 flex flex-wrap items-center justify-between gap-2">
+                {onSelectAssetForEdit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      stopCamera();
+                      onSelectAssetForEdit(matchedAsset);
+                      onClose();
+                    }}
+                    className="min-h-[42px] flex items-center justify-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 transition cursor-pointer"
+                  >
+                    <Edit2 className="w-3.5 h-3.5 text-slate-600" />
+                    <span>Edit Detail</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
@@ -721,12 +887,46 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 </button>
               </div>
             </div>
+          ) : embeddedFallback ? (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl space-y-2.5 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-xs font-black bg-amber-200 text-amber-950 px-2 py-0.5 rounded border border-amber-300">
+                  {embeddedFallback.id}
+                </span>
+                <span className="text-[11px] font-semibold text-amber-800">
+                  Data dari Stiker QR
+                </span>
+              </div>
+              {embeddedFallback.name && (
+                <h4 className="font-bold text-sm text-slate-900">{embeddedFallback.name}</h4>
+              )}
+              {embeddedFallback.notes && (
+                <div className="bg-white p-2.5 rounded-xl border border-amber-200 text-slate-700">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block mb-0.5">Deskripsi Aset</span>
+                  {embeddedFallback.notes}
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-slate-700">
+                {embeddedFallback.location && (
+                  <div>Lokasi: <strong>{embeddedFallback.location}</strong></div>
+                )}
+                {embeddedFallback.custodian && (
+                  <div>PIC: <strong>{embeddedFallback.custodian}</strong></div>
+                )}
+                {embeddedFallback.sku && (
+                  <div>SKU: <strong>{embeddedFallback.sku}</strong></div>
+                )}
+              </div>
+              <p className="text-[11px] text-amber-800 pt-1 border-t border-amber-200">
+                Aset ini belum ada di penyimpanan lokal perangkat ini. Sinkronkan Google Sheets atau impor backup JSON di menu Master agar seluruh riwayat &amp; stoknya muncul di HP ini.
+              </p>
+            </div>
           ) : hasSearched && inputCode.trim() ? (
             <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-center text-xs text-rose-700 space-y-1">
               <AlertTriangle className="w-6 h-6 text-rose-500 mx-auto" />
-              <p className="font-semibold">Kode barang "{inputCode}" tidak ditemukan di database</p>
+              <p className="font-semibold">Kode barang &quot;{inputCode}&quot; tidak ditemukan di database perangkat ini</p>
               <p className="text-slate-500 text-[11px]">
-                Pastikan format sesuai resep penomoran [XX].[XX].[XXX].[XXX].[XX] atau nomor barcode SKU.
+                Pastikan format sesuai kode inventaris atau sinkronkan database dari Google Sheets jika aset baru ditambahkan dari perangkat lain.
               </p>
             </div>
           ) : null}

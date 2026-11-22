@@ -12,7 +12,9 @@ import {
   FolderOpen,
   Send,
   Loader2,
-  KeyRound
+  KeyRound,
+  Download,
+  HelpCircle
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { WorkspaceConfig, OfficeAsset } from '../types';
@@ -27,6 +29,8 @@ interface GoogleWorkspaceSettingsProps {
   onUpdateConfig: (newConfig: Partial<WorkspaceConfig>) => void;
   assets: OfficeAsset[];
   onSyncAll: () => Promise<void>;
+  onPullFromSheet?: () => Promise<void>;
+  onOpenAuthHelp?: () => void;
   isSyncing: boolean;
 }
 
@@ -38,6 +42,8 @@ export const GoogleWorkspaceSettings: React.FC<GoogleWorkspaceSettingsProps> = (
   onUpdateConfig,
   assets,
   onSyncAll,
+  onPullFromSheet,
+  onOpenAuthHelp,
   isSyncing,
 }) => {
   const [isCreatingSheet, setIsCreatingSheet] = useState(false);
@@ -169,13 +175,26 @@ export const GoogleWorkspaceSettings: React.FC<GoogleWorkspaceSettingsProps> = (
           </div>
 
           {!token ? (
-            <button
-              onClick={onSignIn}
-              className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
-            >
-              <KeyRound className="w-4 h-4 text-amber-400" />
-              <span>Otorisasi Akun Google</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={onSignIn}
+                className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
+              >
+                <KeyRound className="w-4 h-4 text-amber-400" />
+                <span>Otorisasi Akun Google</span>
+              </button>
+              {onOpenAuthHelp && (
+                <button
+                  type="button"
+                  onClick={onOpenAuthHelp}
+                  className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer"
+                >
+                  <HelpCircle className="w-4 h-4 text-amber-600" />
+                  <span>Gagal Login di GitHub?</span>
+                </button>
+              )}
+            </div>
           ) : (
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
@@ -277,14 +296,29 @@ export const GoogleWorkspaceSettings: React.FC<GoogleWorkspaceSettingsProps> = (
             </button>
 
             {workspaceConfig.spreadsheetId && (
-              <button
-                onClick={onSyncAll}
-                disabled={isSyncing || !token}
-                className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span>Sinkronkan Sekarang ({assets.length} Aset)</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={onSyncAll}
+                  disabled={isSyncing || !token}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>Kirim ke Sheets ({assets.length} Aset)</span>
+                </button>
+
+                {onPullFromSheet && (
+                  <button
+                    type="button"
+                    onClick={onPullFromSheet}
+                    disabled={isSyncing || !token}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Muat Data dari Sheets ke Perangkat Ini</span>
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>

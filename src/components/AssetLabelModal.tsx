@@ -45,7 +45,13 @@ export const AssetLabelModal: React.FC<AssetLabelModalProps> = ({
 
       if (qrContentMode === 'link' && typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
         const cleanPath = window.location.pathname.replace(/index\.html$/, '');
-        qrPayload = `${window.location.origin}${cleanPath}?asset=${encodeURIComponent(selectedAsset.id)}`;
+        const params = new URLSearchParams();
+        params.set('asset', selectedAsset.id);
+        if (selectedAsset.name) params.set('n', selectedAsset.name.slice(0, 50));
+        if (selectedAsset.location) params.set('l', selectedAsset.location.slice(0, 40));
+        if (selectedAsset.custodian) params.set('p', selectedAsset.custodian.slice(0, 35));
+        if (selectedAsset.notes) params.set('d', selectedAsset.notes.slice(0, 70));
+        qrPayload = `${window.location.origin}${cleanPath}?${params.toString()}`;
       } else if (qrContentMode === 'json') {
         qrPayload = JSON.stringify({
           id: selectedAsset.id,
@@ -57,6 +63,7 @@ export const AssetLabelModal: React.FC<AssetLabelModalProps> = ({
           tahun: `20${parsed.tahun}`,
           pic: selectedAsset.custodian,
           loc: selectedAsset.location,
+          desc: selectedAsset.notes,
         });
       }
 
