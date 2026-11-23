@@ -19,6 +19,7 @@ interface SpreadsheetConfirmModalProps {
     disposal: number;
     locations: number;
     vendors: number;
+    users?: number;
   };
   isProcessing: boolean;
   onConfirm: () => void;
@@ -42,12 +43,12 @@ export const SpreadsheetConfirmModal: React.FC<SpreadsheetConfirmModalProps> = (
   > = {
     create_db: {
       title: 'Buat Database Google Spreadsheet Baru?',
-      desc: `Aplikasi akan membuat file Google Spreadsheet baru bernama "${spreadsheetName}" dengan 10 tab database (Daftar Aset, Riwayat Mutasi, Servis, Stock Opname, BAPA, Master Lokasi, Vendor, Divisi, Sub Kelompok, dan Pengaturan) lalu mengisinya dengan data saat ini.`,
+      desc: `Aplikasi akan membuat file Google Spreadsheet baru bernama "${spreadsheetName}" dengan 11 tab database (Daftar Aset, Riwayat Mutasi, Servis, Stock Opname, BAPA, Master Lokasi, Vendor, Divisi, Sub Kelompok, Pengaturan, dan Akun Pengguna) lalu mengisinya dengan data saat ini.`,
       confirmLabel: 'Ya, Buat & Simpan Database',
     },
     push_full_db: {
       title: 'Simpan & Perbarui Seluruh Database di Spreadsheet?',
-      desc: `Tindakan ini akan menulis ulang seluruh 10 tab di Google Spreadsheet "${spreadsheetName}" menggunakan data terbaru dari perangkat ini.`,
+      desc: `Tindakan ini akan menulis ulang seluruh 11 tab di Google Spreadsheet "${spreadsheetName}" menggunakan data terbaru dari perangkat ini.`,
       warning: 'Baris data lama di dalam Google Spreadsheet tersebut akan diganti dengan data terbaru saat ini.',
       confirmLabel: 'Ya, Simpan ke Spreadsheet',
     },
@@ -59,7 +60,7 @@ export const SpreadsheetConfirmModal: React.FC<SpreadsheetConfirmModalProps> = (
     },
     enable_auto_sync: {
       title: 'Aktifkan Sinkronisasi Otomatis ke Spreadsheet?',
-      desc: `Saat aktif, setiap kali Anda menambah, mengubah, meminjam, mengembalikan, atau menghapus aset dan master data, aplikasi akan otomatis memperbarui Google Spreadsheet "${spreadsheetName}".`,
+      desc: `Saat aktif, setiap kali Anda menambah, mengubah, meminjam, mengembalikan, atau menghapus aset, akun pengguna, dan master data, aplikasi akan otomatis memperbarui Google Spreadsheet "${spreadsheetName}".`,
       confirmLabel: 'Ya, Jadikan Spreadsheet Database Utama',
     },
   };
@@ -96,6 +97,9 @@ export const SpreadsheetConfirmModal: React.FC<SpreadsheetConfirmModalProps> = (
             <div>Sesi Stock Opname: <strong>{counts.opname}</strong></div>
             <div>Penghapusan BAPA: <strong>{counts.disposal}</strong></div>
             <div>Lokasi &amp; Vendor: <strong>{counts.locations + counts.vendors}</strong></div>
+            {typeof counts.users === 'number' && (
+              <div className="col-span-2">Akun Pengguna (Master_Pengguna): <strong>{counts.users}</strong></div>
+            )}
           </div>
 
           {info.warning && (

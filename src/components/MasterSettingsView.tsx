@@ -24,7 +24,8 @@ import {
   Sliders,
   Image,
   X,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Users
 } from 'lucide-react';
 import {
   MasterBuildingLocation,
@@ -34,9 +35,11 @@ import {
   AssetTransaction,
   MaintenanceRecord,
   StockOpnameSession,
-  DisposalRecord
+  DisposalRecord,
+  AppUserAccount
 } from '../types';
 import { CodeItem } from '../data/assetCodeGenerator';
+import { UserManagementPanel } from './UserManagementPanel';
 
 interface MasterSettingsViewProps {
   locations: MasterBuildingLocation[];
@@ -76,6 +79,18 @@ interface MasterSettingsViewProps {
     disposalRecords: DisposalRecord[];
   };
   onRestoreAllData: (data: any) => void;
+
+  // Spreadsheet Users (Master_Pengguna)
+  appUsers?: AppUserAccount[];
+  currentAppUser?: AppUserAccount | null;
+  onAddAppUser?: (user: AppUserAccount) => void;
+  onUpdateAppUser?: (user: AppUserAccount) => void;
+  onDeleteAppUser?: (userId: string) => void;
+  hasSpreadsheetToken?: boolean;
+  hasSpreadsheetId?: boolean;
+  isSyncingUsers?: boolean;
+  onRefreshUsersFromSheet?: () => Promise<void>;
+  onPushUsersToSheet?: () => void;
 }
 
 export const MasterSettingsView: React.FC<MasterSettingsViewProps> = ({
@@ -103,9 +118,19 @@ export const MasterSettingsView: React.FC<MasterSettingsViewProps> = ({
   onImportSubKelompoks,
   allData,
   onRestoreAllData,
+  appUsers = [],
+  currentAppUser = null,
+  onAddAppUser,
+  onUpdateAppUser,
+  onDeleteAppUser,
+  hasSpreadsheetToken = false,
+  hasSpreadsheetId = false,
+  isSyncingUsers = false,
+  onRefreshUsersFromSheet,
+  onPushUsersToSheet,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<
-    'company' | 'locations' | 'divisions' | 'categories' | 'vendors' | 'backup'
+    'company' | 'users' | 'locations' | 'divisions' | 'categories' | 'vendors' | 'backup'
   >('company');
 
   // Company Settings Form State
@@ -427,6 +452,7 @@ export const MasterSettingsView: React.FC<MasterSettingsViewProps> = ({
       vendors,
       customDivisions,
       customSubKelompoks,
+      appUsers,
       ...allData,
     };
 
@@ -501,7 +527,7 @@ export const MasterSettingsView: React.FC<MasterSettingsViewProps> = ({
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-slate-200 text-xs font-semibold">
         <button
           onClick={() => setActiveSubTab('company')}
-          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl transition ${
+          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl transition whitespace-nowrap ${
             activeSubTab === 'company'
               ? 'bg-slate-900 text-white shadow-xs'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -510,6 +536,20 @@ export const MasterSettingsView: React.FC<MasterSettingsViewProps> = ({
           <Building2 className="w-4 h-4" />
           <span>Profil Instansi & Logo</span>
         </button>
+
+        {onAddAppUser && onUpdateAppUser && onDeleteAppUser && (
+          <button
+            onClick={() => setActiveSubTab('users')}
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl transition whitespace-nowrap ${
+              activeSubTab === 'users'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>Akun Pengguna ({appUsers.length})</span>
+          </button>
+        )}
 
         <button
           onClick={() => setActiveSubTab('locations')}
@@ -1369,6 +1409,24 @@ export const MasterSettingsView: React.FC<MasterSettingsViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* 7. Akun Pengguna (Tab Master_Pengguna di Spreadsheet)    */}
+      {/* ======================================================== */}
+      {activeSubTab === 'users' && onAddAppUser && onUpdateAppUser && onDeleteAppUser && (
+        <UserManagementPanel
+          users={appUsers}
+          currentUser={currentAppUser}
+          onAddUser={onAddAppUser}
+          onUpdateUser={onUpdateAppUser}
+          onDeleteUser={onDeleteAppUser}
+          hasSpreadsheetToken={hasSpreadsheetToken}
+          hasSpreadsheetId={hasSpreadsheetId}
+          isSyncingUsers={isSyncingUsers}
+          onRefreshUsersFromSheet={onRefreshUsersFromSheet}
+          onPushUsersToSheet={onPushUsersToSheet}
+        />
       )}
 
       {/* ======================================================== */}

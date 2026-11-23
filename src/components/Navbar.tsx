@@ -19,7 +19,7 @@ import {
   SlidersHorizontal
 } from 'lucide-react';
 import { User } from 'firebase/auth';
-import { MasterCompanySettings } from '../types';
+import { MasterCompanySettings, AppUserAccount } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
 
 export type AppTab =
@@ -44,11 +44,20 @@ interface NavbarProps {
   hasToken: boolean;
   onSignIn: () => void;
   onSignOut: () => void;
+  appUser?: AppUserAccount | null;
+  onAppLogout?: () => void;
   isSyncing: boolean;
   onManualSync: () => void;
   spreadsheetUrl: string | null;
   companySettings?: MasterCompanySettings;
 }
+
+const ROLE_SHORT: Record<AppUserAccount['role'], string> = {
+  SUPER_ADMIN: 'Super Admin',
+  ADMIN: 'Admin',
+  OPERATOR: 'Operator',
+  AUDITOR: 'Auditor',
+};
 
 export const Navbar: React.FC<NavbarProps> = ({
   currentTab,
@@ -62,6 +71,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   hasToken,
   onSignIn,
   onSignOut,
+  appUser,
+  onAppLogout,
   isSyncing,
   onManualSync,
   companySettings,
@@ -79,14 +90,21 @@ export const Navbar: React.FC<NavbarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const canManageMaster = !appUser || appUser.role === 'SUPER_ADMIN' || appUser.role === 'ADMIN';
+  const canMutateAssets = !appUser || appUser.role !== 'AUDITOR';
+
   const navItems: { tab: AppTab; label: string; icon: React.ReactNode }[] = [
     { tab: 'assets', label: 'Inventaris', icon: <Boxes className="w-3.5 h-3.5" /> },
     { tab: 'transactions', label: 'Mutasi', icon: <History className="w-3.5 h-3.5" /> },
     { tab: 'opname', label: 'Opname', icon: <ClipboardCheck className="w-3.5 h-3.5" /> },
     { tab: 'maintenance', label: 'Servis', icon: <Wrench className="w-3.5 h-3.5" /> },
-    { tab: 'disposal', label: 'BAPA', icon: <Trash2 className="w-3.5 h-3.5" /> },
+    ...(canManageMaster
+      ? [{ tab: 'disposal' as AppTab, label: 'BAPA', icon: <Trash2 className="w-3.5 h-3.5" /> }]
+      : []),
     { tab: 'reports', label: 'Laporan', icon: <BarChart3 className="w-3.5 h-3.5" /> },
-    { tab: 'settings', label: 'Master', icon: <Settings className="w-3.5 h-3.5" /> },
+    ...(canManageMaster
+      ? [{ tab: 'settings' as AppTab, label: 'Master', icon: <Settings className="w-3.5 h-3.5" /> }]
+      : []),
     { tab: 'workspace', label: 'Workspace', icon: <FileSpreadsheet className="w-3.5 h-3.5" /> },
   ];
 
@@ -193,61 +211,107 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </div>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsToolsDropdownOpen(false);
-                      onOpenBatchImportModal();
-                    }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-slate-200 hover:bg-slate-700 hover:text-white rounded-lg transition cursor-pointer text-left"
-                  >
-                    <Upload className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <div>
-                      <p className="font-semibold">Import Data CSV</p>
-                      <p className="text-[11px] text-slate-400">Impor massal inventaris</p>
-                    </div>
-                  </button>
+                  {canMutateAssets && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsToolsDropdownOpen(false);
+                          onOpenBatchImportModal();
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-slate-200 hover:bg-slate-700 hover:text-white rounded-lg transition cursor-pointer text-left"
+                      >
+                        <Upload className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <div>
+                          <p className="font-semibold">Import Data CSV</p>
+                          <p className="text-[11px] text-slate-400">Impor massal inventaris</p>
+                        </div>
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsToolsDropdownOpen(false);
-                      onOpenTransactionModal();
-                    }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-slate-200 hover:bg-slate-700 hover:text-white rounded-lg transition cursor-pointer text-left"
-                  >
-                    <ArrowRightLeft className="w-4 h-4 text-blue-400 shrink-0" />
-                    <div>
-                      <p className="font-semibold">Catat Mutasi / Pinjam</p>
-                      <p className="text-[11px] text-slate-400">Peminjaman & mutasi PIC</p>
-                    </div>
-                  </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsToolsDropdownOpen(false);
+                          onOpenTransactionModal();
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-slate-200 hover:bg-slate-700 hover:text-white rounded-lg transition cursor-pointer text-left"
+                      >
+                        <ArrowRightLeft className="w-4 h-4 text-blue-400 shrink-0" />
+                        <div>
+                          <p className="font-semibold">Catat Mutasi / Pinjam</p>
+                          <p className="text-[11px] text-slate-400">Peminjaman & mutasi PIC</p>
+                        </div>
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={onOpenAddAssetModal}
-              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Aset Baru</span>
-            </button>
+            {canMutateAssets && (
+              <button
+                type="button"
+                onClick={onOpenAddAssetModal}
+                className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Aset Baru</span>
+              </button>
+            )}
 
-            {hasToken && (
+            {hasToken ? (
               <button
                 type="button"
                 onClick={onManualSync}
                 disabled={isSyncing}
                 title="Sinkronkan dengan Google Sheets"
-                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white transition cursor-pointer shrink-0"
+                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-400 hover:text-emerald-300 transition cursor-pointer shrink-0"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-400' : ''}`} />
               </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onSignIn}
+                title="Hubungkan Google Spreadsheet"
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition cursor-pointer whitespace-nowrap shrink-0"
+              >
+                Hubungkan Google
+              </button>
             )}
 
-            {user && hasToken ? (
+            {appUser ? (
+              <div className="flex items-center gap-1.5 pl-1.5 border-l border-slate-800 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setCurrentTab(canManageMaster ? 'settings' : 'workspace')}
+                  className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg px-2.5 py-1 transition cursor-pointer whitespace-nowrap"
+                  title={`${appUser.fullName} (${ROLE_SHORT[appUser.role]})`}
+                >
+                  <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-bold">
+                    {appUser.fullName.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="hidden xl:flex flex-col items-start leading-none text-left">
+                    <span className="text-[11px] font-semibold text-white max-w-[100px] truncate">
+                      {appUser.fullName}
+                    </span>
+                    <span className="text-[9px] text-emerald-400 font-medium">
+                      {ROLE_SHORT[appUser.role]}
+                    </span>
+                  </div>
+                </button>
+                {onAppLogout && (
+                  <button
+                    type="button"
+                    onClick={onAppLogout}
+                    title="Keluar Akun Aplikasi"
+                    className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            ) : user && hasToken ? (
               <div className="flex items-center gap-1.5 pl-1.5 border-l border-slate-800 shrink-0">
                 <button
                   type="button"
@@ -255,39 +319,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                   className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg px-2 py-1 transition cursor-pointer whitespace-nowrap"
                   title="Google Workspace"
                 >
-                  {user.photoURL ? (
-                    <img
-                      src={user.photoURL}
-                      alt={user.displayName || 'User'}
-                      className="w-5 h-5 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">
-                      {user.displayName?.charAt(0) || 'U'}
-                    </div>
-                  )}
-                  <span className="text-xs font-medium text-slate-200 hidden 2xl:inline max-w-[90px] truncate">
+                  <span className="text-xs font-medium text-slate-200 max-w-[90px] truncate">
                     {user.displayName || 'Akun'}
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={onSignOut}
-                  title="Keluar"
+                  title="Putus Sesi Google"
                   className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition cursor-pointer"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                 </button>
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={onSignIn}
-                className="flex items-center gap-1.5 bg-white text-slate-900 hover:bg-slate-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap shrink-0"
-              >
-                <span>Masuk</span>
-              </button>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

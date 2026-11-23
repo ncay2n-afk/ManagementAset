@@ -12,7 +12,9 @@ import {
   DisposalType,
   MasterBuildingLocation,
   MasterVendor,
-  MasterCompanySettings
+  MasterCompanySettings,
+  AppUserAccount,
+  AppUserRole
 } from '../types';
 import { CodeItem } from '../data/assetCodeGenerator';
 
@@ -26,6 +28,7 @@ export const TAB_VENDORS = 'Master_Vendor';
 export const TAB_DIVISIONS = 'Master_Divisi';
 export const TAB_SUB_KELOMPOKS = 'Master_SubKelompok';
 export const TAB_SETTINGS = 'Pengaturan_Aplikasi';
+export const TAB_USERS = 'Master_Pengguna';
 
 export interface FullSpreadsheetDatabase {
   assets: OfficeAsset[];
@@ -38,6 +41,7 @@ export interface FullSpreadsheetDatabase {
   customDivisions: CodeItem[];
   customSubKelompoks: CodeItem[];
   companySettings: MasterCompanySettings;
+  users?: AppUserAccount[];
 }
 
 export const ASSET_HEADERS = [
@@ -151,6 +155,20 @@ export const CODE_ITEM_HEADERS = ['Kode', 'Nama'];
 
 export const SETTINGS_HEADERS = ['Key', 'Value'];
 
+export const USER_HEADERS = [
+  'ID Pengguna',
+  'Username',
+  'Nama Lengkap',
+  'Email',
+  'Peran (Role)',
+  'Divisi / Jabatan',
+  'Status Aktif',
+  'Password Hash',
+  'Salt',
+  'Dibuat Pada',
+  'Login Terakhir',
+];
+
 const ALL_TABS_CONFIG: { title: string; headers: string[] }[] = [
   { title: TAB_ASSETS, headers: ASSET_HEADERS },
   { title: TAB_TRANSACTIONS, headers: TRANSACTION_HEADERS },
@@ -162,6 +180,7 @@ const ALL_TABS_CONFIG: { title: string; headers: string[] }[] = [
   { title: TAB_DIVISIONS, headers: CODE_ITEM_HEADERS },
   { title: TAB_SUB_KELOMPOKS, headers: CODE_ITEM_HEADERS },
   { title: TAB_SETTINGS, headers: SETTINGS_HEADERS },
+  { title: TAB_USERS, headers: USER_HEADERS },
 ];
 
 function safeCell(val: string | number | boolean | null | undefined): string {
@@ -507,6 +526,140 @@ function settingsToRows(cfg: MasterCompanySettings): string[][] {
   ];
 }
 
+function userToRow(u: AppUserAccount): string[] {
+  return [
+    safeCell(u.id),
+    safeCell(u.username.trim().toLowerCase()),
+    safeCell(u.fullName),
+    safeCell(u.email.trim()),
+    safeCell(u.role),
+    safeCell(u.department),
+    u.isActive ? 'Aktif' : 'Nonaktif',
+    safeCell(u.passwordHash),
+    safeCell(u.passwordSalt),
+    safeCell(u.createdAt),
+    safeCell(u.lastLoginAt || ''),
+  ];
+}
+
+function normalizeUserRole(raw: string | undefined): AppUserRole {
+  const val = String(raw || '').trim().toUpperCase();
+  if (val === 'SUPER_ADMIN' || val === 'SUPER ADMIN' || val === 'SUPERADMIN') return 'SUPER_ADMIN';
+  if (val === 'ADMIN' || val === 'ADMIN ASET') return 'ADMIN';
+  if (val === 'AUDITOR' || val === 'VIEWER') return 'AUDITOR';
+  return 'OPERATOR';
+}
+
+function parseActiveStatus(raw: string | undefined): boolean {
+  const val = String(raw || '').trim().toLowerCase();
+  if (!val) return true;
+  if (val === 'nonaktif' || val === 'tidak aktif' || val === 'false' || val === '0' || val === 'no' || val === 'tidak') {
+    return false;
+  }
+  return true;
+}
+
+export function parseUserRows(rows: string[][]): AppUserAccount[] {
+  return rows
+    .filter((r) => (r[0] && String(r[0]).trim() !== '') || (r[1] && String(r[1]).trim() !== ''))
+    .map((r, idx) => ({
+      id: r[0]?.trim() || `USR-${String(idx + 1).padStart(3, '0')}`,
+      username: (r[1] || r[3] || `user${idx + 1}`).trim().toLowerCase(),
+      fullName: r[2]?.trim() || r[1]?.trim() || 'Pengguna',
+      email: (r[3] || '').trim(),
+      role: normalizeUserRole(r[4]),
+      department: r[5]?.trim() || 'Umum',
+      isActive: parseActiveStatus(r[6]),
+      passwordHash: (r[7] || '').trim(),
+      passwordSalt: (r[8] || '').trim(),
+      createdAt: r[9]?.trim() || new Date().toISOString(),
+      lastLoginAt: r[10]?.trim() || undefined,
+    }));
+}
+
+export async function fetchUsersFromSpreadsheet(
+  token: string,
+  spreadsheetId: string
+): Promise<AppUserAccount[]> {
+  const metaRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties.title`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+  if (!metaRes.ok) {
+    const errText = await metaRes.text();
+    throw new Error(`Gagal memeriksa tab ${TAB_USERS} di Spreadsheet (${metaRes.status}): ${errText}`);
+  }
+  const meta = await metaRes.json();
+  const existingTitles: string[] = (meta.sheets || [])
+    .map((s: any) => s?.properties?.title)
+    .filter(Boolean);
+
+  if (!existingTitles.includes(TAB_USERS)) {
+    return [];
+  }
+
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+      `${TAB_USERS}!A2:K1000`
+    )}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Gagal membaca daftar user dari Spreadsheet: ${errText}`);
+  }
+
+  const data = await res.json();
+  return parseUserRows(data.values || []);
+}
+
+export async function syncUsersToSpreadsheet(
+  token: string,
+  spreadsheetId: string,
+  users: AppUserAccount[]
+): Promise<void> {
+  await ensureDatabaseTabs(token, spreadsheetId);
+
+  await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+      `${TAB_USERS}!A:Z`
+    )}:clear`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  const rows = [USER_HEADERS, ...users.map(userToRow)];
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+      `${TAB_USERS}!A1`
+    )}?valueInputOption=USER_ENTERED`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        range: `${TAB_USERS}!A1`,
+        majorDimension: 'ROWS',
+        values: rows,
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Gagal menyimpan daftar akun ke tab ${TAB_USERS}: ${errText}`);
+  }
+}
+
 export async function saveFullDatabaseToSpreadsheet(
   token: string,
   spreadsheetId: string,
@@ -583,6 +736,11 @@ export async function saveFullDatabaseToSpreadsheet(
       range: `${TAB_SETTINGS}!A1`,
       majorDimension: 'ROWS',
       values: [SETTINGS_HEADERS, ...settingsToRows(db.companySettings)],
+    },
+    {
+      range: `${TAB_USERS}!A1`,
+      majorDimension: 'ROWS',
+      values: [USER_HEADERS, ...(db.users || []).map(userToRow)],
     },
   ];
 
@@ -851,6 +1009,10 @@ export async function loadFullDatabaseFromSpreadsheet(
         assetCodeSeparator: map.assetCodeSeparator === '-' ? '-' : '.',
       };
     }
+  }
+
+  if (rowsByTab[TAB_USERS]) {
+    result.users = parseUserRows(rowsByTab[TAB_USERS]);
   }
 
   return result;

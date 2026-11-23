@@ -23,8 +23,15 @@ import {
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppTab } from './Navbar';
-import { MasterCompanySettings } from '../types';
+import { MasterCompanySettings, AppUserAccount } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
+
+const ROLE_SHORT: Record<AppUserAccount['role'], string> = {
+  SUPER_ADMIN: 'Super Admin',
+  ADMIN: 'Admin',
+  OPERATOR: 'Operator',
+  AUDITOR: 'Auditor',
+};
 
 const TAB_TITLES: Record<AppTab, string> = {
   assets: 'Inventaris Aset',
@@ -45,6 +52,7 @@ interface MobileTopBarProps {
   user: User | null;
   hasToken: boolean;
   onSignIn: () => void;
+  appUser?: AppUserAccount | null;
   onOpenMenu: () => void;
 }
 
@@ -56,8 +64,11 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
   user,
   hasToken,
   onSignIn,
+  appUser,
   onOpenMenu,
 }) => {
+  const canMutateAssets = !appUser || appUser.role !== 'AUDITOR';
+
   return (
     <header className="sticky top-0 z-30 h-13 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 text-white px-3 flex items-center justify-between gap-2 pt-safe no-print">
       <div className="flex items-center gap-2.5 min-w-0">
@@ -77,7 +88,7 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
             {TAB_TITLES[currentTab]}
           </h1>
           <p className="text-[11px] text-slate-400 truncate leading-tight">
-            {companySettings?.companyName || 'AsetKantor'}
+            {appUser ? `${appUser.fullName} · ${ROLE_SHORT[appUser.role]}` : (companySettings?.companyName || 'AsetKantor')}
           </p>
         </div>
       </div>
@@ -92,33 +103,36 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
           <Scan className="w-4 h-4" />
         </button>
 
-        <button
-          type="button"
-          onClick={onOpenAddAssetModal}
-          className="min-h-[40px] px-3 flex items-center gap-1 rounded-xl bg-blue-600 text-white text-xs font-semibold hover:bg-blue-500 transition cursor-pointer whitespace-nowrap shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Aset</span>
-        </button>
+        {canMutateAssets && (
+          <button
+            type="button"
+            onClick={onOpenAddAssetModal}
+            className="min-h-[40px] px-3 flex items-center gap-1 rounded-xl bg-blue-600 text-white text-xs font-semibold hover:bg-blue-500 transition cursor-pointer whitespace-nowrap shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Aset</span>
+          </button>
+        )}
 
-        {user && hasToken ? (
+        {appUser ? (
+          <button
+            type="button"
+            onClick={onOpenMenu}
+            aria-label="Profil dan Menu"
+            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl bg-indigo-600 border border-indigo-500 text-white text-xs font-bold cursor-pointer"
+          >
+            {appUser.fullName.charAt(0).toUpperCase()}
+          </button>
+        ) : user && hasToken ? (
           <button
             type="button"
             onClick={onOpenMenu}
             aria-label="Profil dan Menu"
             className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 cursor-pointer"
           >
-            {user.photoURL ? (
-              <img
-                src={user.photoURL}
-                alt={user.displayName || 'Profil'}
-                className="w-6 h-6 rounded-full object-cover"
-              />
-            ) : (
-              <span className="text-xs font-bold text-white">
-                {user.displayName?.charAt(0) || 'U'}
-              </span>
-            )}
+            <span className="text-xs font-bold text-white">
+              {user.displayName?.charAt(0) || 'U'}
+            </span>
           </button>
         ) : (
           <button
@@ -126,7 +140,7 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
             onClick={onSignIn}
             className="min-h-[40px] px-2.5 flex items-center justify-center rounded-xl bg-white text-slate-900 text-xs font-semibold hover:bg-slate-100 transition cursor-pointer whitespace-nowrap shrink-0"
           >
-            Masuk
+            Google
           </button>
         )}
       </div>
@@ -233,6 +247,8 @@ interface MobileMenuSheetProps {
   hasToken: boolean;
   onSignIn: () => void;
   onSignOut: () => void;
+  appUser?: AppUserAccount | null;
+  onAppLogout?: () => void;
   isSyncing: boolean;
   onManualSync: () => void;
   onSwitchToWeb?: () => void;
@@ -252,12 +268,17 @@ export const MobileMenuSheet: React.FC<MobileMenuSheetProps> = ({
   hasToken,
   onSignIn,
   onSignOut,
+  appUser,
+  onAppLogout,
   isSyncing,
   onManualSync,
   onSwitchToWeb,
   isPreviewFrame = false,
 }) => {
   if (!isOpen) return null;
+
+  const canManageMaster = !appUser || appUser.role === 'SUPER_ADMIN' || appUser.role === 'ADMIN';
+  const canMutateAssets = !appUser || appUser.role !== 'AUDITOR';
 
   const secondaryModules: { tab: AppTab; label: string; desc: string; icon: React.ReactNode }[] = [
     {
@@ -266,24 +287,32 @@ export const MobileMenuSheet: React.FC<MobileMenuSheetProps> = ({
       desc: 'Jadwal servis rutin & biaya vendor',
       icon: <Wrench className="w-4 h-4 text-amber-600" />,
     },
-    {
-      tab: 'disposal',
-      label: 'Penghapusan Aset (BAPA)',
-      desc: 'Afkir, lelang, & berita acara resmi',
-      icon: <Trash2 className="w-4 h-4 text-rose-600" />,
-    },
+    ...(canManageMaster
+      ? [
+          {
+            tab: 'disposal' as AppTab,
+            label: 'Penghapusan Aset (BAPA)',
+            desc: 'Afkir, lelang, & berita acara resmi',
+            icon: <Trash2 className="w-4 h-4 text-rose-600" />,
+          },
+        ]
+      : []),
     {
       tab: 'reports',
       label: 'Laporan & Analitik',
       desc: 'Valuasi, mutasi bulanan, & ekspor',
       icon: <BarChart3 className="w-4 h-4 text-blue-600" />,
     },
-    {
-      tab: 'settings',
-      label: 'Master Data & Pengaturan',
-      desc: 'Gedung, lantai, divisi, logo, & backup',
-      icon: <Settings className="w-4 h-4 text-slate-700" />,
-    },
+    ...(canManageMaster
+      ? [
+          {
+            tab: 'settings' as AppTab,
+            label: 'Master Data & Akun Pengguna',
+            desc: 'Akun Spreadsheet, gedung, divisi, logo',
+            icon: <Settings className="w-4 h-4 text-slate-700" />,
+          },
+        ]
+      : []),
     {
       tab: 'workspace',
       label: 'Integrasi Google Workspace',
@@ -330,29 +359,33 @@ export const MobileMenuSheet: React.FC<MobileMenuSheetProps> = ({
               Aksi Lapangan
             </p>
             <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenAddAssetModal();
-                }}
-                className="min-h-[48px] flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left cursor-pointer"
-              >
-                <Plus className="w-4 h-4 text-blue-600 shrink-0" />
-                <span className="text-xs font-semibold text-slate-900">Aset Baru</span>
-              </button>
+              {canMutateAssets && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenAddAssetModal();
+                    }}
+                    className="min-h-[48px] flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span className="text-xs font-semibold text-slate-900">Aset Baru</span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenTransactionModal();
-                }}
-                className="min-h-[48px] flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left cursor-pointer"
-              >
-                <ArrowRightLeft className="w-4 h-4 text-indigo-600 shrink-0" />
-                <span className="text-xs font-semibold text-slate-900">Mutasi / Pinjam</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenTransactionModal();
+                    }}
+                    className="min-h-[48px] flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left cursor-pointer"
+                  >
+                    <ArrowRightLeft className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span className="text-xs font-semibold text-slate-900">Mutasi / Pinjam</span>
+                  </button>
+                </>
+              )}
 
               <button
                 type="button"
@@ -366,17 +399,19 @@ export const MobileMenuSheet: React.FC<MobileMenuSheetProps> = ({
                 <span className="text-xs font-semibold text-slate-900">Stiker Massal</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenBatchImportModal();
-                }}
-                className="min-h-[48px] flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left cursor-pointer"
-              >
-                <Upload className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span className="text-xs font-semibold text-slate-900">Import CSV</span>
-              </button>
+              {canMutateAssets && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenBatchImportModal();
+                  }}
+                  className="min-h-[48px] flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left cursor-pointer"
+                >
+                  <Upload className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="text-xs font-semibold text-slate-900">Import CSV</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -419,27 +454,48 @@ export const MobileMenuSheet: React.FC<MobileMenuSheetProps> = ({
           <div className="space-y-2 pt-1">
             <PWAInstallButton variant="full" />
 
+            {appUser && (
+              <div className="p-3 rounded-2xl bg-indigo-50/70 border border-indigo-200 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                    {appUser.fullName.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-900 truncate">{appUser.fullName}</p>
+                    <p className="text-[11px] text-indigo-700 font-medium truncate">
+                      {ROLE_SHORT[appUser.role]} · {appUser.username}
+                    </p>
+                  </div>
+                </div>
+                {onAppLogout && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onAppLogout();
+                    }}
+                    className="min-h-[38px] px-3 flex items-center gap-1 rounded-xl bg-white border border-rose-200 text-rose-700 text-xs font-semibold cursor-pointer shrink-0"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Keluar</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             {user && hasToken ? (
               <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  {user.photoURL ? (
-                    <img
-                      src={user.photoURL}
-                      alt={user.displayName || 'User'}
-                      className="w-9 h-9 rounded-full object-cover border border-slate-300 shrink-0"
-                    />
-                  ) : (
-                    <div className="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                      {user.displayName?.charAt(0) || 'U'}
-                    </div>
-                  )}
+                  <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                    {user.displayName?.charAt(0) || 'G'}
+                  </div>
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-slate-900 truncate">
                       {user.displayName || user.email}
                     </p>
                     <p className="text-[11px] text-emerald-700 flex items-center gap-1">
                       <CheckCircle2 className="w-3 h-3" />
-                      <span>Google Workspace Aktif</span>
+                      <span>Google Spreadsheet Aktif</span>
                     </p>
                   </div>
                 </div>
@@ -460,7 +516,7 @@ export const MobileMenuSheet: React.FC<MobileMenuSheetProps> = ({
                       onSignOut();
                     }}
                     className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl bg-white border border-slate-200 text-rose-600 cursor-pointer"
-                    title="Keluar"
+                    title="Putus Sesi Google"
                   >
                     <LogOut className="w-4 h-4" />
                   </button>

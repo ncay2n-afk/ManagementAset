@@ -33,7 +33,8 @@ import {
   TAB_VENDORS,
   TAB_DIVISIONS,
   TAB_SUB_KELOMPOKS,
-  TAB_SETTINGS
+  TAB_SETTINGS,
+  TAB_USERS
 } from '../services/sheetsService';
 
 interface GoogleWorkspaceSettingsProps {
@@ -63,6 +64,7 @@ const SYNCED_TABS_LABELS = [
   TAB_DIVISIONS,
   TAB_SUB_KELOMPOKS,
   TAB_SETTINGS,
+  TAB_USERS,
 ];
 
 export const GoogleWorkspaceSettings: React.FC<GoogleWorkspaceSettingsProps> = ({
@@ -279,7 +281,7 @@ export const GoogleWorkspaceSettings: React.FC<GoogleWorkspaceSettingsProps> = (
                 )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Seluruh aset, mutasi, pemeliharaan, stock opname, BAPA, lokasi, vendor, &amp; pengaturan disimpan dalam 10 tab Spreadsheet.
+                Seluruh aset, mutasi, pemeliharaan, stock opname, BAPA, lokasi, vendor, pengaturan, &amp; akun pengguna disimpan dalam 11 tab Spreadsheet.
               </p>
             </div>
           </div>
@@ -297,11 +299,11 @@ export const GoogleWorkspaceSettings: React.FC<GoogleWorkspaceSettingsProps> = (
           )}
         </div>
 
-        {/* 10 Tabs Overview */}
+        {/* 11 Tabs Overview */}
         <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600">
             <span className="font-semibold text-slate-700">
-              10 Tab Database Tersinkronisasi:
+              11 Tab Database Tersinkronisasi:
             </span>
             {workspaceConfig.lastSyncedAt && (
               <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">

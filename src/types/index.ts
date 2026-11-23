@@ -215,3 +215,22 @@ export interface WorkspaceConfig {
   autoSyncSpreadsheet?: boolean;
   lastSyncedAt?: string;
 }
+
+// ==========================================
+// USER ACCOUNTS (MASTER_PENGGUNA IN SPREADSHEET)
+// ==========================================
+export type AppUserRole = 'SUPER_ADMIN' | 'ADMIN' | 'OPERATOR' | 'AUDITOR';
+
+export interface AppUserAccount {
+  id: string; // e.g. USR-001
+  username: string; // unique lowercase handle
+  fullName: string;
+  email: string;
+  role: AppUserRole;
+  department: string;
+  isActive: boolean;
+  passwordHash: string; // PBKDF2-SHA256 hex; empty '' when awaiting first-login password setup
+  passwordSalt: string; // Random hex salt
+  createdAt: string;
+  lastLoginAt?: string;
+}

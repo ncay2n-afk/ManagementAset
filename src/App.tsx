@@ -20,7 +20,8 @@ import {
   AssetCondition,
   MasterBuildingLocation,
   MasterVendor,
-  MasterCompanySettings
+  MasterCompanySettings,
+  AppUserAccount
 } from './types';
 import {
   INITIAL_OFFICE_ASSETS,
@@ -65,6 +66,7 @@ import { BatchLabelModal } from './components/BatchLabelModal';
 import { BatchImportModal } from './components/BatchImportModal';
 import { WarrantyAlertsBanner } from './components/WarrantyAlertsBanner';
 import { AuthDomainHelpModal } from './components/AuthDomainHelpModal';
+import { SpreadsheetLoginView } from './components/SpreadsheetLoginView';
 import {
   SpreadsheetConfirmModal,
   SpreadsheetConfirmAction
@@ -74,9 +76,10 @@ import {
   createDatabaseSpreadsheet,
   saveFullDatabaseToSpreadsheet,
   loadFullDatabaseFromSpreadsheet,
+  fetchUsersFromSpreadsheet,
   FullSpreadsheetDatabase
 } from './services/sheetsService';
-import { CheckCircle2, AlertCircle, Monitor, Smartphone, Laptop } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Monitor, Smartphone, Laptop, ShieldAlert } from 'lucide-react';
 
 const LOCAL_STORAGE_ASSETS_KEY = 'aset_kantor_assets_v3';
 const LOCAL_STORAGE_TRX_KEY = 'aset_kantor_trx_v3';
@@ -88,6 +91,7 @@ const LOCAL_STORAGE_VND_KEY = 'aset_kantor_vnd_v3';
 const LOCAL_STORAGE_COMPANY_KEY = 'aset_kantor_company_v3';
 const LOCAL_STORAGE_DIV_KEY = 'aset_kantor_div_v3';
 const LOCAL_STORAGE_SUB_KEY = 'aset_kantor_sub_v3';
+const LOCAL_STORAGE_USERS_KEY = 'aset_kantor_users_v3';
 const LOCAL_STORAGE_CONFIG_KEY = 'aset_kantor_config_v3';
 const LOCAL_STORAGE_VIEW_MODE_KEY = 'aset_kantor_view_mode';
 
@@ -113,10 +117,21 @@ export default function App() {
   const isForcedMobilePreview = !isViewportMobile && viewMode === 'mobile';
   const effectiveIsMobile = viewMode === 'mobile' || (viewMode === 'auto' && isViewportMobile);
 
-  // Authentication State
+  // Authentication State (Google Workspace OAuth + Spreadsheet App User Session in memory)
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [currentAppUser, setCurrentAppUser] = useState<AppUserAccount | null>(null);
+  const [isSyncingUsers, setIsSyncingUsers] = useState(false);
+
+  const [appUsers, setAppUsers] = useState<AppUserAccount[]>(() => {
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_USERS_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Asset, Transaction, Maintenance, Stock Opname, and Disposal Data
   const [assets, setAssets] = useState<OfficeAsset[]>(() => {
@@ -357,6 +372,14 @@ export default function App() {
 
   useEffect(() => {
     try {
+      localStorage.setItem(LOCAL_STORAGE_USERS_KEY, JSON.stringify(appUsers));
+    } catch (e) {
+      console.warn('LocalStorage save failed:', e);
+    }
+  }, [appUsers]);
+
+  useEffect(() => {
+    try {
       localStorage.setItem(LOCAL_STORAGE_CONFIG_KEY, JSON.stringify(workspaceConfig));
     } catch (e) {
       console.warn('LocalStorage save failed:', e);
@@ -416,7 +439,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Build Full 10-Tab Database Payload
+  // Build Full 11-Tab Database Payload
   const buildFullDatabasePayload = useCallback(
     (): FullSpreadsheetDatabase => ({
       assets,
@@ -429,6 +452,7 @@ export default function App() {
       customDivisions,
       customSubKelompoks,
       companySettings,
+      users: appUsers,
     }),
     [
       assets,
@@ -441,10 +465,54 @@ export default function App() {
       customDivisions,
       customSubKelompoks,
       companySettings,
+      appUsers,
     ]
   );
 
-  // Sign In Handler (+ Auto-Discover Existing Database Spreadsheet)
+  // Read-only fetch of Master_Pengguna from Google Spreadsheet
+  const handleRefreshUsersFromSheet = useCallback(
+    async (overrideToken?: string, overrideSheetId?: string): Promise<AppUserAccount[]> => {
+      const tk = overrideToken || token;
+      const sid = overrideSheetId || workspaceConfig.spreadsheetId;
+      if (!tk || !sid) {
+        setToastMessage({
+          type: 'info',
+          text: 'Hubungkan akun Google dan tautkan ID Spreadsheet terlebih dahulu.',
+        });
+        return [];
+      }
+
+      setIsSyncingUsers(true);
+      try {
+        const loadedUsers = await fetchUsersFromSpreadsheet(tk, sid);
+        if (loadedUsers.length > 0) {
+          skipNextAutoSyncRef.current = true;
+          setAppUsers(loadedUsers);
+          setToastMessage({
+            type: 'success',
+            text: `Berhasil memuat ${loadedUsers.length} akun pengguna dari tab Master_Pengguna.`,
+          });
+        } else {
+          setToastMessage({
+            type: 'info',
+            text: 'Tab Master_Pengguna di Spreadsheet masih kosong.',
+          });
+        }
+        return loadedUsers;
+      } catch (err: any) {
+        setToastMessage({
+          type: 'error',
+          text: err?.message || 'Gagal membaca daftar user dari Spreadsheet.',
+        });
+        return [];
+      } finally {
+        setIsSyncingUsers(false);
+      }
+    },
+    [token, workspaceConfig.spreadsheetId]
+  );
+
+  // Sign In Handler (+ Auto-Discover Existing Database Spreadsheet + Read Users)
   const handleSignIn = async () => {
     try {
       const res = await googleSignIn();
@@ -452,10 +520,13 @@ export default function App() {
       setToken(res.accessToken);
       setAuthHelpModal({ isOpen: false, code: '', message: '' });
 
-      if (!workspaceConfig.spreadsheetId && res.accessToken) {
+      let targetSheetId = workspaceConfig.spreadsheetId;
+
+      if (!targetSheetId && res.accessToken) {
         try {
           const found = await findDatabaseSpreadsheet(res.accessToken);
           if (found) {
+            targetSheetId = found.spreadsheetId;
             setWorkspaceConfig((prev) => ({
               ...prev,
               spreadsheetId: found.spreadsheetId,
@@ -463,21 +534,20 @@ export default function App() {
               spreadsheetName: found.name,
             }));
             setPendingSheetAction('pull_full_db');
-            setToastMessage({
-              type: 'info',
-              text: `Database "${found.name}" ditemukan di Google Drive! Silakan konfirmasi untuk memuat datanya.`,
-            });
-            return;
           }
         } catch (driveErr) {
           console.warn('Auto-discover spreadsheet skipped:', driveErr);
         }
       }
 
-      setToastMessage({
-        type: 'success',
-        text: `Berhasil terhubung dengan Google Workspace (${res.user.email})`,
-      });
+      if (targetSheetId && res.accessToken) {
+        await handleRefreshUsersFromSheet(res.accessToken, targetSheetId);
+      } else {
+        setToastMessage({
+          type: 'success',
+          text: `Berhasil terhubung dengan Google Workspace (${res.user.email})`,
+        });
+      }
     } catch (err: any) {
       const code = err?.code || 'auth/error';
       const msg = err?.message || 'Gagal masuk dengan Google OAuth';
@@ -499,6 +569,52 @@ export default function App() {
         });
       }
     }
+  };
+
+  // App User Session Handlers (Spreadsheet-backed Login)
+  const handleAppLoginSuccess = (account: AppUserAccount) => {
+    skipNextAutoSyncRef.current = false;
+    setAppUsers((prev) =>
+      prev.map((u) => (u.id === account.id ? { ...u, lastLoginAt: account.lastLoginAt } : u))
+    );
+    setCurrentAppUser(account);
+    setToastMessage({
+      type: 'success',
+      text: `Selamat datang, ${account.fullName} (${account.role.replace('_', ' ')})!`,
+    });
+  };
+
+  const handleActivateInvitedUser = (account: AppUserAccount) => {
+    setAppUsers((prev) => prev.map((u) => (u.id === account.id ? account : u)));
+    setCurrentAppUser(account);
+    if (token && workspaceConfig.spreadsheetId && !workspaceConfig.autoSyncSpreadsheet) {
+      setPendingSheetAction('push_full_db');
+    }
+    setToastMessage({
+      type: 'success',
+      text: `Akun "${account.username}" berhasil diaktifkan!`,
+    });
+  };
+
+  const handleFirstSuperAdminCreated = (account: AppUserAccount) => {
+    setAppUsers([account]);
+    setCurrentAppUser(account);
+    if (token && !workspaceConfig.autoSyncSpreadsheet) {
+      setPendingSheetAction(workspaceConfig.spreadsheetId ? 'push_full_db' : 'create_db');
+    }
+    setToastMessage({
+      type: 'success',
+      text: `Akun Super Admin "${account.username}" berhasil dibuat!`,
+    });
+  };
+
+  const handleAppLogout = () => {
+    setCurrentAppUser(null);
+    setCurrentTab('assets');
+    setToastMessage({
+      type: 'info',
+      text: 'Anda telah keluar dari akun aplikasi.',
+    });
   };
 
   // Sign Out Handler
@@ -570,7 +686,7 @@ export default function App() {
         }));
         setToastMessage({
           type: 'success',
-          text: `Database Google Spreadsheet "${dbTitle}" (10 tab) berhasil dibuat & mode Auto-Sync aktif!`,
+          text: `Database Google Spreadsheet "${dbTitle}" (11 tab) berhasil dibuat & mode Auto-Sync aktif!`,
         });
       } else if (pendingSheetAction === 'push_full_db') {
         let targetId = workspaceConfig.spreadsheetId;
@@ -591,7 +707,7 @@ export default function App() {
         }));
         setToastMessage({
           type: 'success',
-          text: 'Seluruh 10 tab database berhasil disimpan ke Google Spreadsheet!',
+          text: 'Seluruh 11 tab database berhasil disimpan ke Google Spreadsheet!',
         });
       } else if (pendingSheetAction === 'enable_auto_sync') {
         let targetId = workspaceConfig.spreadsheetId;
@@ -643,6 +759,9 @@ export default function App() {
             ...loaded.companySettings,
             logoUrl: loaded.companySettings?.logoUrl || prev.logoUrl,
           }));
+        }
+        if (loaded.users && loaded.users.length > 0) {
+          setAppUsers(loaded.users);
         }
         setWorkspaceConfig((prev) => ({
           ...prev,
@@ -917,8 +1036,32 @@ export default function App() {
     });
   };
 
-  // Modal Openers
+  const canManageMaster =
+    !currentAppUser || currentAppUser.role === 'SUPER_ADMIN' || currentAppUser.role === 'ADMIN';
+  const canMutateAssets = !currentAppUser || currentAppUser.role !== 'AUDITOR';
+
+  // Modal Openers (with RBAC guards)
+  const handleOpenAddAsset = () => {
+    if (!canMutateAssets) {
+      setToastMessage({ type: 'info', text: 'Akun Auditor hanya memiliki akses lihat (Read-Only).' });
+      return;
+    }
+    setIsAddAssetModalOpen(true);
+  };
+
+  const handleOpenBatchImport = () => {
+    if (!canMutateAssets) {
+      setToastMessage({ type: 'info', text: 'Akun Auditor tidak dapat mengimpor data.' });
+      return;
+    }
+    setIsBatchImportModalOpen(true);
+  };
+
   const handleOpenTransactionForAsset = (asset?: OfficeAsset) => {
+    if (!canMutateAssets) {
+      setToastMessage({ type: 'info', text: 'Akun Auditor tidak dapat mencatat mutasi aset.' });
+      return;
+    }
     setSelectedAssetForTrx(asset || assets[0] || null);
     setIsTransactionModalOpen(true);
   };
@@ -934,6 +1077,10 @@ export default function App() {
   };
 
   const handleOpenEditForAsset = (asset: OfficeAsset) => {
+    if (!canMutateAssets) {
+      setToastMessage({ type: 'info', text: 'Akun Auditor hanya memiliki akses lihat (Read-Only).' });
+      return;
+    }
     setSelectedAssetForEdit(asset);
     setIsEditAssetModalOpen(true);
   };
@@ -944,6 +1091,10 @@ export default function App() {
   };
 
   const handleQuickReturnFromTracker = (trx: AssetTransaction) => {
+    if (!canMutateAssets) {
+      setToastMessage({ type: 'info', text: 'Akun Auditor tidak dapat mencatat pengembalian.' });
+      return;
+    }
     const targetAsset = assets.find((a) => a.id === trx.assetId) || assets[0];
     setSelectedAssetForTrx(targetAsset);
     setIsTransactionModalOpen(true);
@@ -963,8 +1114,7 @@ export default function App() {
       <WarrantyAlertsBanner
         assets={assets}
         onSelectAsset={(asset) => {
-          setSelectedAssetForEdit(asset);
-          setIsEditAssetModalOpen(true);
+          handleOpenEditForAsset(asset);
         }}
       />
 
@@ -991,7 +1141,7 @@ export default function App() {
         <AssetList
           assets={assets}
           onOpenTransactionModal={handleOpenTransactionForAsset}
-          onOpenAddAssetModal={() => setIsAddAssetModalOpen(true)}
+          onOpenAddAssetModal={handleOpenAddAsset}
           onViewPhoto={handleViewPhoto}
           onOpenLabelModal={handleOpenLabelForAsset}
           onOpenDepreciationModal={handleOpenDepreciationForAsset}
@@ -1035,19 +1185,27 @@ export default function App() {
           onAddRecord={handleAddMaintenance}
           onCompleteRecord={handleCompleteMaintenance}
           token={token}
-          currentUserEmail={user?.email || null}
+          currentUserEmail={user?.email || currentAppUser?.email || null}
           vendors={vendors}
         />
       )}
 
       {/* Tab 5: Penghapusan Aset Resmi (BAPA) */}
       {currentTab === 'disposal' && (
-        <DisposalView
-          assets={assets}
-          records={disposalRecords}
-          onAddDisposal={handleAddDisposal}
-          companySettings={companySettings}
-        />
+        canManageMaster ? (
+          <DisposalView
+            assets={assets}
+            records={disposalRecords}
+            onAddDisposal={handleAddDisposal}
+            companySettings={companySettings}
+          />
+        ) : (
+          <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-2">
+            <ShieldAlert className="w-8 h-8 text-amber-500 mx-auto" />
+            <h4 className="text-sm font-bold text-slate-900">Akses Khusus Admin / Super Admin</h4>
+            <p className="text-xs text-slate-500">Halaman Penghapusan Aset (BAPA) hanya tersedia untuk peran Admin dan Super Admin.</p>
+          </div>
+        )
       )}
 
       {/* Tab 6: Laporan & Analitik Real-Time */}
@@ -1062,49 +1220,73 @@ export default function App() {
 
       {/* Tab 7: Master Data & Pengaturan Aplikasi */}
       {currentTab === 'settings' && (
-        <MasterSettingsView
-          locations={locations}
-          onAddLocation={(newLoc) => setLocations((prev) => [newLoc, ...prev])}
-          onUpdateLocation={(updated) => setLocations((prev) => prev.map((l) => (l.id === updated.id ? updated : l)))}
-          onDeleteLocation={(id) => setLocations((prev) => prev.filter((l) => l.id !== id))}
-          onImportLocations={(newLocs) => setLocations((prev) => [...newLocs, ...prev])}
-          vendors={vendors}
-          onAddVendor={(newVnd) => setVendors((prev) => [newVnd, ...prev])}
-          onUpdateVendor={(updated) => setVendors((prev) => prev.map((v) => (v.id === updated.id ? updated : v)))}
-          onDeleteVendor={(id) => setVendors((prev) => prev.filter((v) => v.id !== id))}
-          onImportVendors={(newVnds) => setVendors((prev) => [...newVnds, ...prev])}
-          companySettings={companySettings}
-          onUpdateCompanySettings={(cfg) => setCompanySettings(cfg)}
-          customDivisions={customDivisions}
-          onAddDivision={(div) => setCustomDivisions((prev) => [...prev, div])}
-          onUpdateDivision={(oldCode, updated) => setCustomDivisions((prev) => prev.map((d) => (d.code === oldCode ? updated : d)))}
-          onDeleteDivision={(code) => setCustomDivisions((prev) => prev.filter((d) => d.code !== code))}
-          onImportDivisions={(newDivs) => setCustomDivisions((prev) => [...newDivs, ...prev])}
-          customSubKelompoks={customSubKelompoks}
-          onAddSubKelompok={(sub) => setCustomSubKelompoks((prev) => [...prev, sub])}
-          onUpdateSubKelompok={(oldCode, updated) => setCustomSubKelompoks((prev) => prev.map((s) => (s.code === oldCode ? updated : s)))}
-          onDeleteSubKelompok={(code) => setCustomSubKelompoks((prev) => prev.filter((s) => s.code !== code))}
-          onImportSubKelompoks={(newSubs) => setCustomSubKelompoks((prev) => [...newSubs, ...prev])}
-          allData={{
-            assets,
-            transactions,
-            maintenanceRecords,
-            stockOpnameSessions,
-            disposalRecords,
-          }}
-          onRestoreAllData={(restored) => {
-            if (restored.assets) setAssets(restored.assets);
-            if (restored.transactions) setTransactions(restored.transactions);
-            if (restored.maintenanceRecords) setMaintenanceRecords(restored.maintenanceRecords);
-            if (restored.stockOpnameSessions) setStockOpnameSessions(restored.stockOpnameSessions);
-            if (restored.disposalRecords) setDisposalRecords(restored.disposalRecords);
-            if (restored.locations) setLocations(restored.locations);
-            if (restored.vendors) setVendors(restored.vendors);
-            if (restored.companySettings) setCompanySettings(restored.companySettings);
-            if (restored.customDivisions) setCustomDivisions(restored.customDivisions);
-            if (restored.customSubKelompoks) setCustomSubKelompoks(restored.customSubKelompoks);
-          }}
-        />
+        canManageMaster ? (
+          <MasterSettingsView
+            locations={locations}
+            onAddLocation={(newLoc) => setLocations((prev) => [newLoc, ...prev])}
+            onUpdateLocation={(updated) => setLocations((prev) => prev.map((l) => (l.id === updated.id ? updated : l)))}
+            onDeleteLocation={(id) => setLocations((prev) => prev.filter((l) => l.id !== id))}
+            onImportLocations={(newLocs) => setLocations((prev) => [...newLocs, ...prev])}
+            vendors={vendors}
+            onAddVendor={(newVnd) => setVendors((prev) => [newVnd, ...prev])}
+            onUpdateVendor={(updated) => setVendors((prev) => prev.map((v) => (v.id === updated.id ? updated : v)))}
+            onDeleteVendor={(id) => setVendors((prev) => prev.filter((v) => v.id !== id))}
+            onImportVendors={(newVnds) => setVendors((prev) => [...newVnds, ...prev])}
+            companySettings={companySettings}
+            onUpdateCompanySettings={(cfg) => setCompanySettings(cfg)}
+            customDivisions={customDivisions}
+            onAddDivision={(div) => setCustomDivisions((prev) => [...prev, div])}
+            onUpdateDivision={(oldCode, updated) => setCustomDivisions((prev) => prev.map((d) => (d.code === oldCode ? updated : d)))}
+            onDeleteDivision={(code) => setCustomDivisions((prev) => prev.filter((d) => d.code !== code))}
+            onImportDivisions={(newDivs) => setCustomDivisions((prev) => [...newDivs, ...prev])}
+            customSubKelompoks={customSubKelompoks}
+            onAddSubKelompok={(sub) => setCustomSubKelompoks((prev) => [...prev, sub])}
+            onUpdateSubKelompok={(oldCode, updated) => setCustomSubKelompoks((prev) => prev.map((s) => (s.code === oldCode ? updated : s)))}
+            onDeleteSubKelompok={(code) => setCustomSubKelompoks((prev) => prev.filter((s) => s.code !== code))}
+            onImportSubKelompoks={(newSubs) => setCustomSubKelompoks((prev) => [...newSubs, ...prev])}
+            allData={{
+              assets,
+              transactions,
+              maintenanceRecords,
+              stockOpnameSessions,
+              disposalRecords,
+            }}
+            onRestoreAllData={(restored) => {
+              if (restored.assets) setAssets(restored.assets);
+              if (restored.transactions) setTransactions(restored.transactions);
+              if (restored.maintenanceRecords) setMaintenanceRecords(restored.maintenanceRecords);
+              if (restored.stockOpnameSessions) setStockOpnameSessions(restored.stockOpnameSessions);
+              if (restored.disposalRecords) setDisposalRecords(restored.disposalRecords);
+              if (restored.locations) setLocations(restored.locations);
+              if (restored.vendors) setVendors(restored.vendors);
+              if (restored.companySettings) setCompanySettings(restored.companySettings);
+              if (restored.customDivisions) setCustomDivisions(restored.customDivisions);
+              if (restored.customSubKelompoks) setCustomSubKelompoks(restored.customSubKelompoks);
+              if (restored.appUsers) setAppUsers(restored.appUsers);
+            }}
+            appUsers={appUsers}
+            currentAppUser={currentAppUser}
+            onAddAppUser={(newUsr) => setAppUsers((prev) => [...prev, newUsr])}
+            onUpdateAppUser={(updatedUsr) => {
+              setAppUsers((prev) => prev.map((u) => (u.id === updatedUsr.id ? updatedUsr : u)));
+              if (currentAppUser?.id === updatedUsr.id) {
+                setCurrentAppUser(updatedUsr);
+              }
+            }}
+            onDeleteAppUser={(usrId) => setAppUsers((prev) => prev.filter((u) => u.id !== usrId))}
+            hasSpreadsheetToken={Boolean(token)}
+            hasSpreadsheetId={Boolean(workspaceConfig.spreadsheetId)}
+            isSyncingUsers={isSyncingUsers}
+            onRefreshUsersFromSheet={() => handleRefreshUsersFromSheet().then(() => undefined)}
+            onPushUsersToSheet={() => setPendingSheetAction('push_full_db')}
+          />
+        ) : (
+          <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-2">
+            <ShieldAlert className="w-8 h-8 text-amber-500 mx-auto" />
+            <h4 className="text-sm font-bold text-slate-900">Akses Khusus Admin / Super Admin</h4>
+            <p className="text-xs text-slate-500">Pengaturan Master Data &amp; Akun Pengguna hanya tersedia untuk peran Admin dan Super Admin.</p>
+          </div>
+        )
       )}
 
       {/* Tab 8: Pengaturan Integrasi Google Workspace */}
@@ -1197,6 +1379,89 @@ export default function App() {
     </div>
   );
 
+  if (!currentAppUser) {
+    return (
+      <>
+        <OfflineIndicator />
+        {toastMessage && (
+          <div className="fixed bottom-5 right-5 z-50 max-w-md no-print">
+            <div
+              className={`flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-xs font-semibold border ${
+                toastMessage.type === 'success'
+                  ? 'bg-slate-900 text-emerald-400 border-emerald-500/40'
+                  : toastMessage.type === 'error'
+                  ? 'bg-rose-950 text-rose-200 border-rose-500/40'
+                  : 'bg-slate-900 text-blue-300 border-blue-500/40'
+              }`}
+            >
+              {toastMessage.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              )}
+              <span>{toastMessage.text}</span>
+            </div>
+          </div>
+        )}
+
+        <SpreadsheetLoginView
+          users={appUsers}
+          companySettings={companySettings}
+          workspaceConfig={workspaceConfig}
+          googleUser={user}
+          token={token}
+          isSyncingUsers={isSyncingUsers}
+          onGoogleConnectAndSync={handleSignIn}
+          onRefreshUsersFromSheet={() => handleRefreshUsersFromSheet().then(() => undefined)}
+          onUpdateSheetId={(rawId) => {
+            const cleanId = rawId.includes('/d/') ? rawId.split('/d/')[1].split('/')[0] : rawId.trim();
+            setWorkspaceConfig((prev) => ({
+              ...prev,
+              spreadsheetId: cleanId,
+              spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${cleanId}/edit`,
+            }));
+            if (token) {
+              handleRefreshUsersFromSheet(token, cleanId);
+            }
+          }}
+          onLoginSuccess={handleAppLoginSuccess}
+          onActivateInvitedUser={handleActivateInvitedUser}
+          onFirstSuperAdminCreated={handleFirstSuperAdminCreated}
+          onOpenAuthHelp={() =>
+            setAuthHelpModal({
+              isOpen: true,
+              code: 'github-pages-oauth-checklist',
+              message: `Jika login gagal di ${typeof window !== 'undefined' ? window.location.hostname : 'GitHub Pages'}, pastikan domain & origin sudah didaftarkan di Firebase dan Google Cloud Console.`,
+            })
+          }
+          hasQrParam={Boolean(initialScanQuery)}
+          onOpenQrResult={() => setIsScanModalOpen(true)}
+        />
+
+        <AuthDomainHelpModal
+          isOpen={authHelpModal.isOpen}
+          onClose={() => setAuthHelpModal((prev) => ({ ...prev, isOpen: false }))}
+          errorCode={authHelpModal.code}
+          errorMessage={authHelpModal.message}
+          onRetrySignIn={handleSignIn}
+        />
+
+        <BarcodeScannerModal
+          isOpen={isScanModalOpen}
+          onClose={() => {
+            setIsScanModalOpen(false);
+            setInitialScanQuery(null);
+          }}
+          allAssets={assets}
+          onSelectAssetForTransaction={handleOpenTransactionForAsset}
+          onSelectAssetForLabel={handleOpenLabelForAsset}
+          onSelectAssetForEdit={handleOpenEditForAsset}
+          initialQuery={initialScanQuery}
+        />
+      </>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col font-sans">
       {/* Offline Indicator Banner */}
@@ -1237,14 +1502,16 @@ export default function App() {
             currentTab={currentTab}
             setCurrentTab={setCurrentTab}
             onOpenTransactionModal={() => handleOpenTransactionForAsset()}
-            onOpenAddAssetModal={() => setIsAddAssetModalOpen(true)}
+            onOpenAddAssetModal={handleOpenAddAsset}
             onOpenScanModal={() => setIsScanModalOpen(true)}
             onOpenBatchLabelModal={() => setIsBatchLabelModalOpen(true)}
-            onOpenBatchImportModal={() => setIsBatchImportModalOpen(true)}
+            onOpenBatchImportModal={handleOpenBatchImport}
             user={user}
             hasToken={!!token}
             onSignIn={handleSignIn}
             onSignOut={handleSignOut}
+            appUser={currentAppUser}
+            onAppLogout={handleAppLogout}
             isSyncing={isSyncing}
             onManualSync={handleManualSync}
             spreadsheetUrl={workspaceConfig.spreadsheetUrl}
@@ -1279,11 +1546,12 @@ export default function App() {
               <MobileTopBar
                 currentTab={currentTab}
                 companySettings={companySettings}
-                onOpenAddAssetModal={() => setIsAddAssetModalOpen(true)}
+                onOpenAddAssetModal={handleOpenAddAsset}
                 onOpenScanModal={() => setIsScanModalOpen(true)}
                 user={user}
                 hasToken={!!token}
                 onSignIn={handleSignIn}
+                appUser={currentAppUser}
                 onOpenMenu={() => setIsMobileMenuOpen(true)}
               />
               <main className="flex-1 overflow-y-auto px-3.5 py-4 space-y-4">
@@ -1301,14 +1569,16 @@ export default function App() {
                 onClose={() => setIsMobileMenuOpen(false)}
                 currentTab={currentTab}
                 setCurrentTab={setCurrentTab}
-                onOpenAddAssetModal={() => setIsAddAssetModalOpen(true)}
+                onOpenAddAssetModal={handleOpenAddAsset}
                 onOpenTransactionModal={() => handleOpenTransactionForAsset()}
                 onOpenBatchLabelModal={() => setIsBatchLabelModalOpen(true)}
-                onOpenBatchImportModal={() => setIsBatchImportModalOpen(true)}
+                onOpenBatchImportModal={handleOpenBatchImport}
                 user={user}
                 hasToken={!!token}
                 onSignIn={handleSignIn}
                 onSignOut={handleSignOut}
+                appUser={currentAppUser}
+                onAppLogout={handleAppLogout}
                 isSyncing={isSyncing}
                 onManualSync={handleManualSync}
                 onSwitchToWeb={() => setViewMode('web')}
@@ -1325,11 +1595,12 @@ export default function App() {
           <MobileTopBar
             currentTab={currentTab}
             companySettings={companySettings}
-            onOpenAddAssetModal={() => setIsAddAssetModalOpen(true)}
+            onOpenAddAssetModal={handleOpenAddAsset}
             onOpenScanModal={() => setIsScanModalOpen(true)}
             user={user}
             hasToken={!!token}
             onSignIn={handleSignIn}
+            appUser={currentAppUser}
             onOpenMenu={() => setIsMobileMenuOpen(true)}
           />
           <main className="flex-1 w-full px-3.5 py-4 pb-24 space-y-4">
@@ -1347,14 +1618,16 @@ export default function App() {
             onClose={() => setIsMobileMenuOpen(false)}
             currentTab={currentTab}
             setCurrentTab={setCurrentTab}
-            onOpenAddAssetModal={() => setIsAddAssetModalOpen(true)}
+            onOpenAddAssetModal={handleOpenAddAsset}
             onOpenTransactionModal={() => handleOpenTransactionForAsset()}
             onOpenBatchLabelModal={() => setIsBatchLabelModalOpen(true)}
-            onOpenBatchImportModal={() => setIsBatchImportModalOpen(true)}
+            onOpenBatchImportModal={handleOpenBatchImport}
             user={user}
             hasToken={!!token}
             onSignIn={handleSignIn}
             onSignOut={handleSignOut}
+            appUser={currentAppUser}
+            onAppLogout={handleAppLogout}
             isSyncing={isSyncing}
             onManualSync={handleManualSync}
             onSwitchToWeb={() => setViewMode('web')}
@@ -1370,7 +1643,7 @@ export default function App() {
         selectedAsset={selectedAssetForTrx}
         allAssets={assets}
         token={token}
-        currentUserEmail={user?.email || null}
+        currentUserEmail={user?.email || currentAppUser?.email || null}
         workspaceConfig={workspaceConfig}
         onTransactionSuccess={handleTransactionSuccess}
         registeredLocations={locations}
@@ -1460,6 +1733,7 @@ export default function App() {
           disposal: disposalRecords.length,
           locations: locations.length,
           vendors: vendors.length,
+          users: appUsers.length,
         }}
         isProcessing={isSyncing}
         onConfirm={executeConfirmedSpreadsheetAction}
