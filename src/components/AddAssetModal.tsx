@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { X, Plus, Camera, Layers, CheckCircle2, AlertTriangle, Loader2, Sparkles, Hash } from 'lucide-react';
 import { OfficeAsset, AssetCategory, AssetCondition, MasterBuildingLocation } from '../types';
 import { uploadConditionPhotoToDrive } from '../services/driveService';
-import { appendRow, assetToRow } from '../services/sheetsService';
 import { CurrencyInput } from './CurrencyInput';
 import {
   KODE_BIDANG_LIST,
@@ -171,15 +170,6 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
         notes: notes.trim(),
         updatedAt: new Date().toISOString(),
       };
-
-      if (token && spreadsheetId) {
-        try {
-          const rowData = assetToRow(newAsset);
-          await appendRow(token, spreadsheetId, 'Daftar_Aset', rowData);
-        } catch (sheetErr) {
-          console.warn('Google Sheets append error:', sheetErr);
-        }
-      }
 
       onAssetAdded(newAsset);
       onClose();

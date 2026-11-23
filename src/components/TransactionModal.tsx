@@ -27,7 +27,6 @@ import {
 } from '../types';
 import { uploadConditionPhotoToDrive } from '../services/driveService';
 import { sendGmailMessage, buildAssetStatusEmailTemplate } from '../services/gmailService';
-import { appendRow, syncAssetsToSheet, transactionToRow } from '../services/sheetsService';
 
 interface TransactionModalProps {
   isOpen: boolean;
@@ -296,22 +295,6 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           }
         } catch (emailErr: any) {
           console.warn('Gagal kirim Gmail (tetap lanjut menyimpan transaksi):', emailErr);
-        }
-      }
-
-      // 4. Sync with Google Sheets if configured and token exists
-      if (token && workspaceConfig.spreadsheetId) {
-        setSubmitStep('Memperbarui data dan stok di Google Sheets...');
-        try {
-          // Append transaction log to Riwayat_Mutasi
-          const trxRow = transactionToRow(newTransaction);
-          await appendRow(token, workspaceConfig.spreadsheetId, 'Riwayat_Mutasi', trxRow);
-
-          // Update asset inventory
-          const updatedAllAssets = allAssets.map((a) => (a.id === updatedAsset.id ? updatedAsset : a));
-          await syncAssetsToSheet(token, workspaceConfig.spreadsheetId, updatedAllAssets);
-        } catch (sheetErr: any) {
-          console.warn('Gagal sinkronisasi Google Sheets:', sheetErr);
         }
       }
 

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User } from 'firebase/auth';
 import {
   initAuth,
@@ -66,9 +66,15 @@ import { BatchImportModal } from './components/BatchImportModal';
 import { WarrantyAlertsBanner } from './components/WarrantyAlertsBanner';
 import { AuthDomainHelpModal } from './components/AuthDomainHelpModal';
 import {
-  syncAssetsToSheet,
-  fetchAssetsFromSheet,
-  createSpreadsheet
+  SpreadsheetConfirmModal,
+  SpreadsheetConfirmAction
+} from './components/SpreadsheetConfirmModal';
+import {
+  findDatabaseSpreadsheet,
+  createDatabaseSpreadsheet,
+  saveFullDatabaseToSpreadsheet,
+  loadFullDatabaseFromSpreadsheet,
+  FullSpreadsheetDatabase
 } from './services/sheetsService';
 import { CheckCircle2, AlertCircle, Monitor, Smartphone, Laptop } from 'lucide-react';
 
@@ -224,8 +230,11 @@ export default function App() {
     };
   });
 
-  // Sync state
+  // Sync state & Spreadsheet Database confirmation
   const [isSyncing, setIsSyncing] = useState(false);
+  const [pendingSheetAction, setPendingSheetAction] = useState<SpreadsheetConfirmAction | null>(null);
+  const skipNextAutoSyncRef = useRef(false);
+  const hasAutoSyncMountedRef = useRef(false);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'info' | 'error'; text: string } | null>(null);
 
   // Filters
@@ -407,13 +416,64 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Sign In Handler
+  // Build Full 10-Tab Database Payload
+  const buildFullDatabasePayload = useCallback(
+    (): FullSpreadsheetDatabase => ({
+      assets,
+      transactions,
+      maintenanceRecords,
+      stockOpnameSessions,
+      disposalRecords,
+      locations,
+      vendors,
+      customDivisions,
+      customSubKelompoks,
+      companySettings,
+    }),
+    [
+      assets,
+      transactions,
+      maintenanceRecords,
+      stockOpnameSessions,
+      disposalRecords,
+      locations,
+      vendors,
+      customDivisions,
+      customSubKelompoks,
+      companySettings,
+    ]
+  );
+
+  // Sign In Handler (+ Auto-Discover Existing Database Spreadsheet)
   const handleSignIn = async () => {
     try {
       const res = await googleSignIn();
       setUser(res.user);
       setToken(res.accessToken);
       setAuthHelpModal({ isOpen: false, code: '', message: '' });
+
+      if (!workspaceConfig.spreadsheetId && res.accessToken) {
+        try {
+          const found = await findDatabaseSpreadsheet(res.accessToken);
+          if (found) {
+            setWorkspaceConfig((prev) => ({
+              ...prev,
+              spreadsheetId: found.spreadsheetId,
+              spreadsheetUrl: found.spreadsheetUrl,
+              spreadsheetName: found.name,
+            }));
+            setPendingSheetAction('pull_full_db');
+            setToastMessage({
+              type: 'info',
+              text: `Database "${found.name}" ditemukan di Google Drive! Silakan konfirmasi untuk memuat datanya.`,
+            });
+            return;
+          }
+        } catch (driveErr) {
+          console.warn('Auto-discover spreadsheet skipped:', driveErr);
+        }
+      }
+
       setToastMessage({
         type: 'success',
         text: `Berhasil terhubung dengan Google Workspace (${res.user.email})`,
@@ -456,49 +516,218 @@ export default function App() {
     }
   };
 
-  // Manual Sync All with Google Sheets
+  // Find Existing Spreadsheet on Drive
+  const handleFindExistingSpreadsheet = useCallback(async () => {
+    if (!token) {
+      setToastMessage({
+        type: 'info',
+        text: 'Silakan hubungkan akun Google terlebih dahulu.',
+      });
+      return;
+    }
+
+    const found = await findDatabaseSpreadsheet(token);
+    if (!found) {
+      setToastMessage({
+        type: 'info',
+        text: 'Belum ditemukan file Spreadsheet AsetKantor_Database_Inventaris di Google Drive Anda. Klik "Buat Database Spreadsheet Baru" untuk membuatnya.',
+      });
+      return;
+    }
+
+    setWorkspaceConfig((prev) => ({
+      ...prev,
+      spreadsheetId: found.spreadsheetId,
+      spreadsheetUrl: found.spreadsheetUrl,
+      spreadsheetName: found.name,
+    }));
+    setPendingSheetAction('pull_full_db');
+  }, [token]);
+
+  // Execute Confirmed Spreadsheet Action (Create / Push / Pull / Enable Auto-Sync)
+  const executeConfirmedSpreadsheetAction = useCallback(async () => {
+    if (!token || !pendingSheetAction) return;
+
+    setIsSyncing(true);
+    try {
+      const dbPayload = buildFullDatabasePayload();
+
+      if (pendingSheetAction === 'create_db') {
+        const dbTitle =
+          workspaceConfig.spreadsheetName ||
+          `AsetKantor_Database_Inventaris_${new Date().getFullYear()}`;
+        const created = await createDatabaseSpreadsheet(token, dbTitle);
+        await saveFullDatabaseToSpreadsheet(token, created.spreadsheetId, dbPayload);
+        const nowIso = new Date().toISOString();
+        skipNextAutoSyncRef.current = true;
+        setWorkspaceConfig((prev) => ({
+          ...prev,
+          spreadsheetId: created.spreadsheetId,
+          spreadsheetUrl: created.spreadsheetUrl,
+          spreadsheetName: dbTitle,
+          autoSyncSpreadsheet: true,
+          lastSyncedAt: nowIso,
+        }));
+        setToastMessage({
+          type: 'success',
+          text: `Database Google Spreadsheet "${dbTitle}" (10 tab) berhasil dibuat & mode Auto-Sync aktif!`,
+        });
+      } else if (pendingSheetAction === 'push_full_db') {
+        let targetId = workspaceConfig.spreadsheetId;
+        let targetUrl = workspaceConfig.spreadsheetUrl;
+        if (!targetId) {
+          const created = await createDatabaseSpreadsheet(token, 'AsetKantor_Database_Inventaris');
+          targetId = created.spreadsheetId;
+          targetUrl = created.spreadsheetUrl;
+        }
+        await saveFullDatabaseToSpreadsheet(token, targetId, dbPayload);
+        const nowIso = new Date().toISOString();
+        skipNextAutoSyncRef.current = true;
+        setWorkspaceConfig((prev) => ({
+          ...prev,
+          spreadsheetId: targetId,
+          spreadsheetUrl: targetUrl,
+          lastSyncedAt: nowIso,
+        }));
+        setToastMessage({
+          type: 'success',
+          text: 'Seluruh 10 tab database berhasil disimpan ke Google Spreadsheet!',
+        });
+      } else if (pendingSheetAction === 'enable_auto_sync') {
+        let targetId = workspaceConfig.spreadsheetId;
+        let targetUrl = workspaceConfig.spreadsheetUrl;
+        const dbTitle =
+          workspaceConfig.spreadsheetName ||
+          `AsetKantor_Database_Inventaris_${new Date().getFullYear()}`;
+        if (!targetId) {
+          const created = await createDatabaseSpreadsheet(token, dbTitle);
+          targetId = created.spreadsheetId;
+          targetUrl = created.spreadsheetUrl;
+        }
+        await saveFullDatabaseToSpreadsheet(token, targetId, dbPayload);
+        const nowIso = new Date().toISOString();
+        skipNextAutoSyncRef.current = true;
+        setWorkspaceConfig((prev) => ({
+          ...prev,
+          spreadsheetId: targetId,
+          spreadsheetUrl: targetUrl,
+          spreadsheetName: dbTitle,
+          autoSyncSpreadsheet: true,
+          lastSyncedAt: nowIso,
+        }));
+        setToastMessage({
+          type: 'success',
+          text: 'Google Spreadsheet resmi aktif sebagai database utama (Auto-Sync aktif)!',
+        });
+      } else if (pendingSheetAction === 'pull_full_db') {
+        if (!workspaceConfig.spreadsheetId) {
+          throw new Error('ID Google Spreadsheet belum ditautkan.');
+        }
+        const loaded = await loadFullDatabaseFromSpreadsheet(
+          token,
+          workspaceConfig.spreadsheetId
+        );
+        skipNextAutoSyncRef.current = true;
+        if (loaded.assets) setAssets(loaded.assets);
+        if (loaded.transactions) setTransactions(loaded.transactions);
+        if (loaded.maintenanceRecords) setMaintenanceRecords(loaded.maintenanceRecords);
+        if (loaded.stockOpnameSessions) setStockOpnameSessions(loaded.stockOpnameSessions);
+        if (loaded.disposalRecords) setDisposalRecords(loaded.disposalRecords);
+        if (loaded.locations) setLocations(loaded.locations);
+        if (loaded.vendors) setVendors(loaded.vendors);
+        if (loaded.customDivisions) setCustomDivisions(loaded.customDivisions);
+        if (loaded.customSubKelompoks) setCustomSubKelompoks(loaded.customSubKelompoks);
+        if (loaded.companySettings) {
+          setCompanySettings((prev) => ({
+            ...prev,
+            ...loaded.companySettings,
+            logoUrl: loaded.companySettings?.logoUrl || prev.logoUrl,
+          }));
+        }
+        setWorkspaceConfig((prev) => ({
+          ...prev,
+          lastSyncedAt: new Date().toISOString(),
+        }));
+        const assetCount = loaded.assets?.length ?? 0;
+        const trxCount = loaded.transactions?.length ?? 0;
+        setToastMessage({
+          type: 'success',
+          text: `Berhasil memuat database dari Google Spreadsheet (${assetCount} aset, ${trxCount} riwayat mutasi)!`,
+        });
+      }
+    } catch (err: any) {
+      console.error(err);
+      setToastMessage({
+        type: 'error',
+        text: err?.message || 'Gagal memproses operasi Google Spreadsheet.',
+      });
+    } finally {
+      setIsSyncing(false);
+      setPendingSheetAction(null);
+    }
+  }, [
+    token,
+    pendingSheetAction,
+    buildFullDatabasePayload,
+    workspaceConfig.spreadsheetId,
+    workspaceConfig.spreadsheetUrl,
+    workspaceConfig.spreadsheetName,
+  ]);
+
+  // Debounced Real-Time Auto-Sync to 10-Tab Google Spreadsheet
+  useEffect(() => {
+    if (!hasAutoSyncMountedRef.current) {
+      hasAutoSyncMountedRef.current = true;
+      return;
+    }
+    if (!token || !workspaceConfig.spreadsheetId || !workspaceConfig.autoSyncSpreadsheet) {
+      return;
+    }
+    if (skipNextAutoSyncRef.current) {
+      skipNextAutoSyncRef.current = false;
+      return;
+    }
+
+    const targetSheetId = workspaceConfig.spreadsheetId;
+    const payload = buildFullDatabasePayload();
+
+    const timer = setTimeout(async () => {
+      try {
+        setIsSyncing(true);
+        await saveFullDatabaseToSpreadsheet(token, targetSheetId, payload);
+        setWorkspaceConfig((prev) => ({
+          ...prev,
+          lastSyncedAt: new Date().toISOString(),
+        }));
+      } catch (err) {
+        console.warn('Auto-sync Google Spreadsheet gagal:', err);
+      } finally {
+        setIsSyncing(false);
+      }
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [
+    token,
+    workspaceConfig.spreadsheetId,
+    workspaceConfig.autoSyncSpreadsheet,
+    buildFullDatabasePayload,
+  ]);
+
+  // Manual Sync Trigger (opens explicit confirmation modal)
   const handleManualSync = useCallback(async () => {
     if (!token) {
       setCurrentTab('workspace');
       setToastMessage({
         type: 'info',
-        text: 'Silakan hubungkan akun Google untuk sinkronisasi Google Sheets.',
+        text: 'Silakan hubungkan akun Google untuk sinkronisasi Google Spreadsheet.',
       });
       return;
     }
+    setPendingSheetAction(workspaceConfig.spreadsheetId ? 'push_full_db' : 'create_db');
+  }, [token, workspaceConfig.spreadsheetId]);
 
-    setIsSyncing(true);
-    try {
-      let targetSheetId = workspaceConfig.spreadsheetId;
-
-      if (!targetSheetId) {
-        const created = await createSpreadsheet(token, 'AsetKantor_Database_Inventaris');
-        targetSheetId = created.spreadsheetId;
-        setWorkspaceConfig((prev) => ({
-          ...prev,
-          spreadsheetId: created.spreadsheetId,
-          spreadsheetUrl: created.spreadsheetUrl,
-        }));
-      }
-
-      await syncAssetsToSheet(token, targetSheetId, assets);
-
-      setToastMessage({
-        type: 'success',
-        text: 'Data inventaris berhasil disinkronkan ke Google Sheets!',
-      });
-    } catch (err: any) {
-      console.error(err);
-      setToastMessage({
-        type: 'error',
-        text: err.message || 'Gagal menyinkronkan data dengan Google Sheets',
-      });
-    } finally {
-      setIsSyncing(false);
-    }
-  }, [token, workspaceConfig.spreadsheetId, assets]);
-
-  // Pull / Load Assets from Google Sheets to current device
+  // Pull Trigger (opens explicit confirmation modal)
   const handlePullFromSheet = useCallback(async () => {
     if (!token || !workspaceConfig.spreadsheetId) {
       setToastMessage({
@@ -507,30 +736,7 @@ export default function App() {
       });
       return;
     }
-
-    setIsSyncing(true);
-    try {
-      const sheetAssets = await fetchAssetsFromSheet(token, workspaceConfig.spreadsheetId);
-      if (sheetAssets.length === 0) {
-        setToastMessage({
-          type: 'info',
-          text: 'Spreadsheet masih kosong (belum ada baris aset).',
-        });
-        return;
-      }
-      setAssets(sheetAssets);
-      setToastMessage({
-        type: 'success',
-        text: `Berhasil memuat ${sheetAssets.length} aset dari Google Sheets ke perangkat ini!`,
-      });
-    } catch (err: any) {
-      setToastMessage({
-        type: 'error',
-        text: err.message || 'Gagal mengambil data dari Google Sheets',
-      });
-    } finally {
-      setIsSyncing(false);
-    }
+    setPendingSheetAction('pull_full_db');
   }, [token, workspaceConfig.spreadsheetId]);
 
   // Transaction Success Handler
@@ -559,17 +765,9 @@ export default function App() {
   };
 
   // Batch CSV Import Handler
-  const handleBatchImport = async (importedAssets: OfficeAsset[]) => {
+  const handleBatchImport = (importedAssets: OfficeAsset[]) => {
     const combined = [...importedAssets, ...assets];
     setAssets(combined);
-
-    if (token && workspaceConfig.spreadsheetId) {
-      try {
-        await syncAssetsToSheet(token, workspaceConfig.spreadsheetId, combined);
-      } catch (e) {
-        console.warn('Batch sync error:', e);
-      }
-    }
 
     setToastMessage({
       type: 'success',
@@ -578,17 +776,9 @@ export default function App() {
   };
 
   // Edit Asset Handler
-  const handleSaveEditedAsset = async (updatedAsset: OfficeAsset) => {
+  const handleSaveEditedAsset = (updatedAsset: OfficeAsset) => {
     const updatedList = assets.map((a) => (a.id === updatedAsset.id ? updatedAsset : a));
     setAssets(updatedList);
-
-    if (token && workspaceConfig.spreadsheetId) {
-      try {
-        await syncAssetsToSheet(token, workspaceConfig.spreadsheetId, updatedList);
-      } catch (err) {
-        console.warn('Failed to sync edited asset to Sheets:', err);
-      }
-    }
 
     setToastMessage({
       type: 'success',
@@ -597,17 +787,9 @@ export default function App() {
   };
 
   // Delete Asset Handler
-  const handleDeleteAsset = async (assetId: string) => {
+  const handleDeleteAsset = (assetId: string) => {
     const updatedList = assets.filter((a) => a.id !== assetId);
     setAssets(updatedList);
-
-    if (token && workspaceConfig.spreadsheetId) {
-      try {
-        await syncAssetsToSheet(token, workspaceConfig.spreadsheetId, updatedList);
-      } catch (err) {
-        console.warn('Failed to sync deleted asset to Sheets:', err);
-      }
-    }
 
     setToastMessage({
       type: 'info',
@@ -647,9 +829,6 @@ export default function App() {
     });
 
     setAssets(updated);
-    if (token && workspaceConfig.spreadsheetId) {
-      syncAssetsToSheet(token, workspaceConfig.spreadsheetId, updated).catch(console.warn);
-    }
 
     setToastMessage({
       type: 'success',
@@ -676,9 +855,6 @@ export default function App() {
         return a;
       });
       setAssets(updated);
-      if (token && workspaceConfig.spreadsheetId) {
-        syncAssetsToSheet(token, workspaceConfig.spreadsheetId, updated).catch(console.warn);
-      }
     }
 
     setToastMessage({
@@ -798,6 +974,9 @@ export default function App() {
         transactions={transactions}
         hasToken={!!token}
         spreadsheetUrl={workspaceConfig.spreadsheetUrl}
+        isSpreadsheetDbActive={Boolean(
+          token && workspaceConfig.spreadsheetId && workspaceConfig.autoSyncSpreadsheet
+        )}
         onOpenWorkspace={() => setCurrentTab('workspace')}
         onFilterStatus={(status) => {
           setSelectedStatusFilter(status);
@@ -939,6 +1118,15 @@ export default function App() {
           assets={assets}
           onSyncAll={handleManualSync}
           onPullFromSheet={handlePullFromSheet}
+          onRequestSpreadsheetAction={(action) => setPendingSheetAction(action)}
+          onFindExistingSpreadsheet={handleFindExistingSpreadsheet}
+          onDisableAutoSync={() => {
+            setWorkspaceConfig((prev) => ({ ...prev, autoSyncSpreadsheet: false }));
+            setToastMessage({
+              type: 'info',
+              text: 'Auto-Sync real-time dimatikan. Anda masih bisa menyinkronkan manual kapan saja.',
+            });
+          }}
           onOpenAuthHelp={() =>
             setAuthHelpModal({
               isOpen: true,
@@ -1257,6 +1445,25 @@ export default function App() {
         errorCode={authHelpModal.code}
         errorMessage={authHelpModal.message}
         onRetrySignIn={handleSignIn}
+      />
+
+      {/* Explicit Confirmation Modal for Spreadsheet Database Operations */}
+      <SpreadsheetConfirmModal
+        isOpen={Boolean(pendingSheetAction)}
+        action={pendingSheetAction}
+        spreadsheetName={workspaceConfig.spreadsheetName || 'AsetKantor_Database_Inventaris'}
+        counts={{
+          assets: assets.length,
+          transactions: transactions.length,
+          maintenance: maintenanceRecords.length,
+          opname: stockOpnameSessions.length,
+          disposal: disposalRecords.length,
+          locations: locations.length,
+          vendors: vendors.length,
+        }}
+        isProcessing={isSyncing}
+        onConfirm={executeConfirmedSpreadsheetAction}
+        onCancel={() => setPendingSheetAction(null)}
       />
 
       {/* BAST Digital Modal */}

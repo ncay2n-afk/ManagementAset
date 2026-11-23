@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FileSpreadsheet,
   HardDrive,
@@ -14,12 +14,27 @@ import {
   Loader2,
   KeyRound,
   Download,
-  HelpCircle
+  HelpCircle,
+  Search,
+  Database,
+  Clock
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { WorkspaceConfig, OfficeAsset } from '../types';
-import { createSpreadsheet, syncAssetsToSheet } from '../services/sheetsService';
 import { sendGmailMessage } from '../services/gmailService';
+import { SpreadsheetConfirmAction } from './SpreadsheetConfirmModal';
+import {
+  TAB_ASSETS,
+  TAB_TRANSACTIONS,
+  TAB_MAINTENANCE,
+  TAB_OPNAME,
+  TAB_DISPOSAL,
+  TAB_LOCATIONS,
+  TAB_VENDORS,
+  TAB_DIVISIONS,
+  TAB_SUB_KELOMPOKS,
+  TAB_SETTINGS
+} from '../services/sheetsService';
 
 interface GoogleWorkspaceSettingsProps {
   user: User | null;
@@ -30,9 +45,25 @@ interface GoogleWorkspaceSettingsProps {
   assets: OfficeAsset[];
   onSyncAll: () => Promise<void>;
   onPullFromSheet?: () => Promise<void>;
+  onRequestSpreadsheetAction?: (action: SpreadsheetConfirmAction) => void;
+  onFindExistingSpreadsheet?: () => Promise<void>;
+  onDisableAutoSync?: () => void;
   onOpenAuthHelp?: () => void;
   isSyncing: boolean;
 }
+
+const SYNCED_TABS_LABELS = [
+  TAB_ASSETS,
+  TAB_TRANSACTIONS,
+  TAB_MAINTENANCE,
+  TAB_OPNAME,
+  TAB_DISPOSAL,
+  TAB_LOCATIONS,
+  TAB_VENDORS,
+  TAB_DIVISIONS,
+  TAB_SUB_KELOMPOKS,
+  TAB_SETTINGS,
+];
 
 export const GoogleWorkspaceSettings: React.FC<GoogleWorkspaceSettingsProps> = ({
   user,
@@ -43,10 +74,13 @@ export const GoogleWorkspaceSettings: React.FC<GoogleWorkspaceSettingsProps> = (
   assets,
   onSyncAll,
   onPullFromSheet,
+  onRequestSpreadsheetAction,
+  onFindExistingSpreadsheet,
+  onDisableAutoSync,
   onOpenAuthHelp,
   isSyncing,
 }) => {
-  const [isCreatingSheet, setIsCreatingSheet] = useState(false);
+  const [isSearchingDrive, setIsSearchingDrive] = useState(false);
   const [customSheetId, setCustomSheetId] = useState(workspaceConfig.spreadsheetId || '');
   const [testEmailStatus, setTestEmailStatus] = useState<string | null>(null);
   const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
@@ -54,7 +88,11 @@ export const GoogleWorkspaceSettings: React.FC<GoogleWorkspaceSettingsProps> = (
     null
   );
 
-  const handleCreateNewSpreadsheet = async () => {
+  useEffect(() => {
+    setCustomSheetId(workspaceConfig.spreadsheetId || '');
+  }, [workspaceConfig.spreadsheetId]);
+
+  const handleCreateNewSpreadsheetClick = () => {
     if (!token) {
       setFeedbackMsg({
         type: 'error',
@@ -62,38 +100,32 @@ export const GoogleWorkspaceSettings: React.FC<GoogleWorkspaceSettingsProps> = (
       });
       return;
     }
+    if (onRequestSpreadsheetAction) {
+      onRequestSpreadsheetAction('create_db');
+    } else {
+      onSyncAll();
+    }
+  };
 
-    setIsCreatingSheet(true);
-    setFeedbackMsg(null);
-
-    try {
-      const result = await createSpreadsheet(
-        token,
-        `AsetKantor_Database_Inventaris_${new Date().getFullYear()}`
-      );
-
-      // Immediately sync current assets to the new sheet
-      await syncAssetsToSheet(token, result.spreadsheetId, assets);
-
-      onUpdateConfig({
-        spreadsheetId: result.spreadsheetId,
-        spreadsheetUrl: result.spreadsheetUrl,
-        spreadsheetName: `AsetKantor_Database_Inventaris_${new Date().getFullYear()}`,
-      });
-
-      setCustomSheetId(result.spreadsheetId);
-      setFeedbackMsg({
-        type: 'success',
-        text: 'Google Spreadsheet baru berhasil dibuat dan seluruh aset kantor telah disinkronkan!',
-      });
-    } catch (err: any) {
-      console.error(err);
+  const handleFindDriveClick = async () => {
+    if (!token || !onFindExistingSpreadsheet) {
       setFeedbackMsg({
         type: 'error',
-        text: err.message || 'Gagal membuat Google Spreadsheet',
+        text: 'Silakan masuk dengan akun Google terlebih dahulu.',
+      });
+      return;
+    }
+    setIsSearchingDrive(true);
+    setFeedbackMsg(null);
+    try {
+      await onFindExistingSpreadsheet();
+    } catch (err: any) {
+      setFeedbackMsg({
+        type: 'error',
+        text: err?.message || 'Gagal mencari file Spreadsheet di Google Drive.',
       });
     } finally {
-      setIsCreatingSheet(false);
+      setIsSearchingDrive(false);
     }
   };
 
@@ -110,7 +142,7 @@ export const GoogleWorkspaceSettings: React.FC<GoogleWorkspaceSettingsProps> = (
 
     setFeedbackMsg({
       type: 'success',
-      text: 'ID Google Spreadsheet berhasil diperbarui.',
+      text: 'ID Google Spreadsheet berhasil ditautkan. Anda dapat menekan "Muat Database" atau "Simpan Database".',
     });
   };
 
@@ -155,6 +187,10 @@ export const GoogleWorkspaceSettings: React.FC<GoogleWorkspaceSettingsProps> = (
     }
   };
 
+  const isAutoSyncActive = Boolean(
+    token && workspaceConfig.spreadsheetId && workspaceConfig.autoSyncSpreadsheet
+  );
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       {/* Overview Card */}
@@ -169,7 +205,7 @@ export const GoogleWorkspaceSettings: React.FC<GoogleWorkspaceSettingsProps> = (
                 Integrasi Ekosistem Google Workspace
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Google Sheets (Database), Google Drive (Foto Bukti), dan Gmail (Notifikasi Otomatis)
+                Google Spreadsheet (Database Utama 10 Tab), Google Drive (Foto Bukti), &amp; Gmail (Notifikasi)
               </p>
             </div>
           </div>
@@ -223,19 +259,27 @@ export const GoogleWorkspaceSettings: React.FC<GoogleWorkspaceSettingsProps> = (
         )}
       </div>
 
-      {/* 1. Google Sheets Database Card */}
+      {/* 1. Google Sheets Full Database Card */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
+            <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200/80">
               <FileSpreadsheet className="w-5 h-5" />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-slate-900">
-                1. Google Sheets (Database Utama Inventaris)
-              </h4>
-              <p className="text-xs text-slate-500">
-                Menyimpan lembar <code>Daftar_Aset</code> dan <code>Riwayat_Mutasi</code> secara real-time.
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="text-sm font-bold text-slate-900">
+                  1. Google Spreadsheet (Database Utama Aplikasi)
+                </h4>
+                {isAutoSyncActive && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                    <Database className="w-3 h-3" />
+                    Auto-Sync Aktif
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Seluruh aset, mutasi, pemeliharaan, stock opname, BAPA, lokasi, vendor, &amp; pengaturan disimpan dalam 10 tab Spreadsheet.
               </p>
             </div>
           </div>
@@ -245,7 +289,7 @@ export const GoogleWorkspaceSettings: React.FC<GoogleWorkspaceSettingsProps> = (
               href={workspaceConfig.spreadsheetUrl}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg border border-emerald-200 transition"
+              className="flex items-center justify-center gap-1.5 text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3 py-2 rounded-xl border border-emerald-200 transition shrink-0"
             >
               <span>Buka Spreadsheet</span>
               <ExternalLink className="w-3.5 h-3.5" />
@@ -253,73 +297,156 @@ export const GoogleWorkspaceSettings: React.FC<GoogleWorkspaceSettingsProps> = (
           )}
         </div>
 
-        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-3">
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        {/* 10 Tabs Overview */}
+        <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600">
+            <span className="font-semibold text-slate-700">
+              10 Tab Database Tersinkronisasi:
+            </span>
+            {workspaceConfig.lastSyncedAt && (
+              <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
+                <Clock className="w-3 h-3" />
+                Terakhir sinkron:{' '}
+                {new Date(workspaceConfig.lastSyncedAt).toLocaleString('id-ID')}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {SYNCED_TABS_LABELS.map((tabName) => (
+              <span
+                key={tabName}
+                className="px-2 py-0.5 bg-white border border-slate-200 rounded-md text-[10px] font-mono text-slate-700"
+              >
+                {tabName}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Spreadsheet Connection & Actions */}
+        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-2">
             <div className="flex-1">
               <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                ID Spreadsheet Google Sheets
+                ID atau URL Google Spreadsheet Database
               </label>
               <input
                 type="text"
-                placeholder="Masukkan ID Spreadsheet atau biarkan kosong untuk buat otomatis"
+                placeholder="Tempel URL atau ID Spreadsheet, atau klik Cari / Buat Baru"
                 value={customSheetId}
                 onChange={(e) => setCustomSheetId(e.target.value)}
                 className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono"
               />
             </div>
             <button
+              type="button"
               onClick={handleSaveCustomSheetId}
               disabled={!customSheetId.trim()}
-              className="mt-auto px-4 py-2 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 transition"
+              className="px-4 py-2 bg-white hover:bg-slate-100 disabled:opacity-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 transition cursor-pointer"
             >
-              Simpan ID
+              Tautkan ID
             </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            <button
-              onClick={handleCreateNewSpreadsheet}
-              disabled={isCreatingSheet || !token}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
-            >
-              {isCreatingSheet ? (
-                <>
+          <div className="flex flex-wrap items-center gap-2.5">
+            {onFindExistingSpreadsheet && (
+              <button
+                type="button"
+                onClick={handleFindDriveClick}
+                disabled={isSearchingDrive || isSyncing || !token}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-800 border border-slate-300 rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+              >
+                {isSearchingDrive ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Membuat Spreadsheet...</span>
-                </>
+                ) : (
+                  <Search className="w-3.5 h-3.5 text-indigo-600" />
+                )}
+                <span>Cari Spreadsheet Lama di Drive</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleCreateNewSpreadsheetClick}
+              disabled={isSyncing || !token}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+            >
+              {isSyncing ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <>
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Buat Spreadsheet Baru Otomatis</span>
-                </>
+                <Plus className="w-3.5 h-3.5" />
               )}
+              <span>Buat Database Spreadsheet Baru</span>
             </button>
 
             {workspaceConfig.spreadsheetId && (
               <>
                 <button
                   type="button"
-                  onClick={onSyncAll}
+                  onClick={() =>
+                    onRequestSpreadsheetAction
+                      ? onRequestSpreadsheetAction('push_full_db')
+                      : onSyncAll()
+                  }
                   disabled={isSyncing || !token}
-                  className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                  <span>Kirim ke Sheets ({assets.length} Aset)</span>
+                  <span>Simpan Full DB ke Sheets ({assets.length} Aset)</span>
                 </button>
 
-                {onPullFromSheet && (
-                  <button
-                    type="button"
-                    onClick={onPullFromSheet}
-                    disabled={isSyncing || !token}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Muat Data dari Sheets ke Perangkat Ini</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() =>
+                    onRequestSpreadsheetAction
+                      ? onRequestSpreadsheetAction('pull_full_db')
+                      : onPullFromSheet?.()
+                  }
+                  disabled={isSyncing || !token}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Muat Full DB dari Sheets</span>
+                </button>
               </>
             )}
+          </div>
+
+          {/* Real-Time Auto-Sync Toggle */}
+          <div className="pt-2 border-t border-slate-200/80">
+            <label
+              className={`flex items-start gap-3 p-3 rounded-xl border transition ${
+                workspaceConfig.autoSyncSpreadsheet
+                  ? 'bg-emerald-50/70 border-emerald-200'
+                  : 'bg-white border-slate-200'
+              } ${!token ? 'opacity-60' : 'cursor-pointer'}`}
+            >
+              <input
+                type="checkbox"
+                checked={Boolean(workspaceConfig.autoSyncSpreadsheet)}
+                disabled={!token || isSyncing}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    if (onRequestSpreadsheetAction) {
+                      onRequestSpreadsheetAction('enable_auto_sync');
+                    } else {
+                      onUpdateConfig({ autoSyncSpreadsheet: true });
+                    }
+                  } else {
+                    onDisableAutoSync?.();
+                  }
+                }}
+                className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <div className="text-xs">
+                <div className="font-bold text-slate-900">
+                  Mode Database Real-Time (Auto-Sync Setiap Perubahan)
+                </div>
+                <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                  Jika diaktifkan, setiap penambahan/edit/hapus aset, mutasi barang, servis, opname, penghapusan BAPA, maupun perubahan master data akan otomatis disimpan ke 10 tab Google Spreadsheet. Penyimpanan browser lokal tetap berjalan sebagai cache cadangan offline.
+                </p>
+              </div>
+            </label>
           </div>
         </div>
       </div>

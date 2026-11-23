@@ -212,4 +212,6 @@ export interface WorkspaceConfig {
   autoSendEmailOnDamage: boolean;
   autoSendEmailOnLowStock: boolean;
   lowStockThreshold: number;
+  autoSyncSpreadsheet?: boolean;
+  lastSyncedAt?: string;
 }
